@@ -1185,9 +1185,29 @@ static int sysSel = 0, sysTop = 0;
 static String sysMsg;
 
 static const char* SYS_MENU[]     = { "About this device", "Settings" };
-static const char* SYS_SETTINGS[] = { "Clock", "Sleep after", "Clean screen refresh", "Previous firmware" };
+static const char* SYS_SETTINGS[] = { "Clock", "Sleep after", "Full refresh after", "Full on app switch",
+                                      "Clean screen refresh", "Previous firmware" };
 static bool sysRollAsk = false, sysRollYes = false;
 static const uint32_t SLEEP_CHOICES[] = { 60, 120, 300, 600, 0 };      // seconds; 0 = never
+// Partial refreshes before a full one (Screen::REFRESH_NEVER = never)
+static const uint16_t FULL_EVERY_CHOICES[]  = { 25, 50, 100, 200, 500, Screen::REFRESH_NEVER };
+static const uint16_t FULL_SWITCH_CHOICES[] = { 0, 10, 30, 100, Screen::REFRESH_NEVER };
+
+template <size_t N>
+static uint16_t nextChoice(const uint16_t (&choices)[N], uint16_t cur) {
+  size_t i = 0;
+  while (i < N && choices[i] != cur) i++;
+  return choices[i < N ? (i + 1) % N : 0];             // unknown value (edited file): start over
+}
+
+static String fullEveryLabel(uint16_t n) {
+  return n == Screen::REFRESH_NEVER ? String("Never") : String(n) + " updates";
+}
+static String fullSwitchLabel(uint16_t n) {
+  if (n == Screen::REFRESH_NEVER) return "Never";
+  if (n == 0) return "Always";
+  return "After " + String(n);
+}
 
 static String sleepLabel(uint32_t s) {
   if (!s) return "Never";
@@ -1210,7 +1230,7 @@ static void sysEnter() { sysGo(SysScreen::Menu); }
 static int sysCount() {
   switch (sysScr) {
     case SysScreen::Menu:     return 2;
-    case SysScreen::Settings: return Ota::canRollBack() ? 4 : 3;
+    case SysScreen::Settings: return Ota::canRollBack() ? 6 : 5;
     case SysScreen::Clock:    return CLOCK_ITEMS;
     case SysScreen::Zones:    return Clock::zoneCount();
     default:                  return 0;
@@ -1243,7 +1263,11 @@ static void sysActivate() {
         Power::setTimeoutSec(SLEEP_CHOICES[(i + 1) % n]);
         AppMgr::requestRedraw(Refresh::Partial);
       }
-      else if (sysSel == 2) { sysMsg = "Screen refreshed"; AppMgr::requestRedraw(Refresh::Clean); }
+      else if (sysSel == 2) { screen.setFullEvery(nextChoice(FULL_EVERY_CHOICES, screen.fullEvery()));
+                              AppMgr::requestRedraw(Refresh::Partial); }
+      else if (sysSel == 3) { screen.setFullOnSwitch(nextChoice(FULL_SWITCH_CHOICES, screen.fullOnSwitch()));
+                              AppMgr::requestRedraw(Refresh::Partial); }
+      else if (sysSel == 4) { sysMsg = "Screen refreshed"; AppMgr::requestRedraw(Refresh::Clean); }
       else { sysRollAsk = true; sysRollYes = false; AppMgr::requestRedraw(Refresh::Partial); }
       break;
     case SysScreen::Clock:
@@ -1336,8 +1360,10 @@ static void sysDrawScreen() {
     case SysScreen::Settings:
       items.push_back(menuRow(SYS_SETTINGS[0], ">"));
       items.push_back(menuRow(SYS_SETTINGS[1], sleepLabel(Power::timeoutSec())));
-      items.push_back(menuRow(SYS_SETTINGS[2], ""));
-      if (Ota::canRollBack()) items.push_back(menuRow(SYS_SETTINGS[3], ""));
+      items.push_back(menuRow(SYS_SETTINGS[2], fullEveryLabel(screen.fullEvery())));
+      items.push_back(menuRow(SYS_SETTINGS[3], fullSwitchLabel(screen.fullOnSwitch())));
+      items.push_back(menuRow(SYS_SETTINGS[4], ""));
+      if (Ota::canRollBack()) items.push_back(menuRow(SYS_SETTINGS[5], ""));
       break;
     case SysScreen::Clock:
       items.push_back(menuRow("Format", Clock::use12h() ? "12-hour" : "24-hour"));

@@ -1,4 +1,6 @@
 #include "screen.h"
+#include "storage.h"
+#include "keyboard.h"
 
 Screen screen;
 
@@ -12,14 +14,29 @@ void Screen::begin() {
 }
 
 void Screen::refresh(Refresh mode) {
-  bool full = (mode == Refresh::Clean) || _forceFull || (_partials >= FULL_REFRESH_EVERY)
-           || (mode == Refresh::Full && _partials >= FULL_REFRESH_SOFT);
+  bool full = (mode == Refresh::Clean) || _forceFull
+           || (_fullEvery != REFRESH_NEVER && _partials >= _fullEvery)
+           || (mode == Refresh::Full && _fullOnSwitch != REFRESH_NEVER && _partials >= _fullOnSwitch);
   uint32_t t = millis();
   backendPush(full);
   _lastMs = millis() - t;
   if (full) { _partials = 0; _forceFull = false; _fulls++; }
   else      { _partials++; }
   Serial.printf("[screen] %s refresh took %lu ms\n", full ? "full" : "partial", (unsigned long)_lastMs);
+}
+
+void Screen::loadSettings() {
+  String cfg;
+  if (!Storage::readText(DISPLAY_CONFIG_FILE, cfg, 128)) return;
+  int p = cfg.indexOf("every=");
+  if (p >= 0) _fullEvery = strtoul(cfg.c_str() + p + 6, nullptr, 10);
+  p = cfg.indexOf("switch=");
+  if (p >= 0) _fullOnSwitch = strtoul(cfg.c_str() + p + 7, nullptr, 10);
+  Serial.printf("[screen] full refresh every %u partials, on app switch after %u\n", _fullEvery, _fullOnSwitch);
+}
+
+bool Screen::saveSettings() {
+  return Storage::writeText(DISPLAY_CONFIG_FILE, "every=" + String(_fullEvery) + "\nswitch=" + String(_fullOnSwitch) + "\n");
 }
 
 void Screen::text(int x, int y, const char* s, uint8_t size) {
@@ -184,6 +201,7 @@ void Screen::backendPush(bool full) {
       }
     }
     tft.writePixels(lineBuf, dstW);
+    if ((dy & 15) == 15) kb.service();          // don't miss keys during a slow push
   }
   tft.endWrite();
 
@@ -245,9 +263,17 @@ void Screen::sleep() { epd.hibernate(); }      // GxEPD2 wakes the panel again o
 void Screen::wake()  {}
 const char* Screen::backendName() const { return EPD_NAME; }
 
+// Called over and over while the panel is busy refreshing: keep reading the
+// keyboard so keys typed meanwhile are queued, not lost
+static void whileBusy(const void*) {
+  kb.service();
+  delay(1);
+}
+
 void Screen::backendBegin() {
   SPI.begin(PIN_DISP_SCK, -1, PIN_DISP_MOSI, PIN_DISP_CS);
   epd.init(115200, true, 50, false);   // prints busy timings to Serial
+  epd.epd2.setBusyCallback(whileBusy);
   epd.setRotation(EPD_ROTATION);
   epd.setTextWrap(false);
   Serial.printf("[screen] %s, %dx%d\n", EPD_NAME, epd.width(), epd.height());

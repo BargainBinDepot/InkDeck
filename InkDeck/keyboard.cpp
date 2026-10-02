@@ -20,8 +20,16 @@ bool CardKB::begin() {
 }
 
 uint8_t CardKB::poll() {
+  service();
+  if (_head == _tail) return 0;
+  const uint8_t c = _q[_tail];
+  _tail = (_tail + 1) % QUEUE;
+  return c;
+}
+
+void CardKB::service() {
   uint32_t now = millis();
-  if (now - _lastPoll < KB_POLL_MS) return 0;
+  if (now - _lastPoll < KB_POLL_MS) return;
   _lastPoll = now;
 
   // Not detected: re-probe once a second so hot-plugging works
@@ -31,17 +39,19 @@ uint8_t CardKB::poll() {
       _present = probeCardKB();
       if (_present) Serial.println("[kb] CardKB connected");
     }
-    return 0;
+    return;
   }
 
   if (Wire.requestFrom((uint8_t)CARDKB_ADDR, (uint8_t)1) != 1) {
     _present = false;
     _lastProbe = now;
     Serial.println("[kb] CardKB lost");
-    return 0;
+    return;
   }
 
   uint8_t c = Wire.read();
-  if (c) Serial.printf("[kb] key 0x%02X\n", c);   // handy for clones with odd codes
-  return c;
+  if (!c) return;
+  Serial.printf("[kb] key 0x%02X\n", c);         // handy for clones with odd codes
+  const uint8_t next = (_head + 1) % QUEUE;
+  if (next != _tail) { _q[_head] = c; _head = next; }   // full: drop (64 keys behind is plenty)
 }

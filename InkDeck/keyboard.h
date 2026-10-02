@@ -2,6 +2,9 @@
 // =====================================================================
 //  CardKB (and clones) — I2C keyboard at 0x5F.
 //  Returns one already-decoded byte per keypress, 0 when idle.
+//  The CardKB only remembers its last key, so keys are read into a queue
+//  every KB_POLL_MS, including while the screen refreshes (service()),
+//  and none are lost when typing faster than the panel.
 // =====================================================================
 #include <Arduino.h>
 
@@ -37,10 +40,14 @@ inline const char* fnKeyName(uint8_t k) {
 class CardKB {
 public:
   bool begin();                    // starts Wire and probes for the keyboard
-  uint8_t poll();                  // call every loop; returns key code or 0
+  uint8_t poll();                  // call every loop; next queued key code, or 0
+  void service();                  // read the keyboard into the queue; safe to call from long waits
   bool present() const { return _present; }
 
 private:
+  static const uint8_t QUEUE = 64;
+  uint8_t _q[QUEUE];
+  uint8_t _head = 0, _tail = 0;    // _head == _tail: empty
   bool _present = false;
   uint32_t _lastPoll = 0;
   uint32_t _lastProbe = 0;

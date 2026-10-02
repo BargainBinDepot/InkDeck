@@ -1,5 +1,5 @@
 // =====================================================================
-//  InkDeck firmware v0.18
+//  InkDeck firmware v0.19
 //  ESP32-S3 + CardKB + e-paper (or the ST7789 TFT preview)
 //
 //  v0.1   display HAL, CardKB input, paged launcher, app framework
@@ -44,6 +44,8 @@
 //  v0.18  WeAct 3.7" panel. Boot-time save check no longer crawls on cards
 //         with big picture folders; app switches no longer force a full
 //         refresh, automatic full refresh every 100 partials (was 10).
+//  v0.19  Settings: "Full refresh after" N updates and "Full on app switch".
+//         Keys typed while the screen refreshes are queued instead of lost.
 //
 //  Arduino IDE: Tools -> Partition Scheme -> "Huge APP (3MB No OTA/1MB SPIFFS)"
 //  with Flash Size 4MB (the default partition is too small for WiFi + Lua).
@@ -80,6 +82,7 @@ void setup() {
   screen.begin();
   kb.begin();
   Storage::begin();
+  screen.loadSettings();
   Clock::begin();
   Power::begin();
   AppMgr::begin();
@@ -88,8 +91,8 @@ void setup() {
 }
 
 void loop() {
-  uint8_t key = kb.poll();
-  if (key) {
+  // Every key typed meanwhile (e.g. during the last refresh), then one redraw for all of them
+  while (uint8_t key = kb.poll()) {
     Power::noteInput();
     AppMgr::handleKey(key);
   }

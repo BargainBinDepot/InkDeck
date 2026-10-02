@@ -12,7 +12,7 @@
 #include "config.h"
 
 // Partial = fast update. Full = the screen changed a lot (app switch, new mode):
-// cleaned with a full refresh only if FULL_REFRESH_SOFT partials have built up
+// cleaned with a full refresh only if fullOnSwitch() partials have built up
 // since the last one, otherwise partial. Clean = always a full refresh.
 // Ordered by strength: a pending redraw keeps the strongest one requested.
 enum class Refresh { Partial, Full, Clean };
@@ -31,9 +31,18 @@ public:
   void clear() { _c.fillScreen(PAPER); _r.fillScreen(PAPER); }
 
   // Push canvases to the panel (see Refresh above). Any refresh is promoted
-  // to a full one after FULL_REFRESH_EVERY partials in a row.
+  // to a full one after fullEvery() partials in a row.
   void refresh(Refresh mode);
   void forceFullNext() { _forceFull = true; }
+
+  // Full-refresh policy (System > Settings), saved in DISPLAY_CONFIG_FILE.
+  // Both count partial refreshes since the last full one; REFRESH_NEVER turns it off.
+  static const uint16_t REFRESH_NEVER = 0xFFFF;
+  void loadSettings();                                    // after Storage::begin()
+  uint16_t fullEvery() const    { return _fullEvery; }    // automatic full refresh after N partials
+  uint16_t fullOnSwitch() const { return _fullOnSwitch; } // app switch etc. (Refresh::Full) cleans after N; 0 = always
+  bool setFullEvery(uint16_t n)    { _fullEvery = n;    return saveSettings(); }
+  bool setFullOnSwitch(uint16_t n) { _fullOnSwitch = n; return saveSettings(); }
   uint32_t partialCount() const { return _partials; }
   uint32_t fullCount() const { return _fulls; }
   uint32_t lastRefreshMs() const { return _lastMs; }
@@ -58,6 +67,10 @@ private:
   uint32_t _fulls = 0;
   uint32_t _lastMs = 0;
   bool _forceFull = false;
+  uint16_t _fullEvery = FULL_REFRESH_EVERY;
+  uint16_t _fullOnSwitch = FULL_REFRESH_SOFT;
+
+  bool saveSettings();
 
   void backendBegin();
   void backendPush(bool full);
