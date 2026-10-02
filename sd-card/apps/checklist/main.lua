@@ -384,7 +384,7 @@ local function nameKey(k, ch)
   if k == keys.ENTER then
     local f = fileNameFor(nameText)
     if not f then return false end
-    if f ~= nameFor and file.exists(LISTS .. "/" .. f) then nameWarn = titleOf(f); return end
+    if f:lower() ~= (nameFor or ""):lower() and file.exists(LISTS .. "/" .. f) then nameWarn = titleOf(f); return end
     if nameFor then                                   -- rename
       if f ~= nameFor then file.rename(LISTS .. "/" .. nameFor, LISTS .. "/" .. f) end
       message = "Renamed to " .. titleOf(f)

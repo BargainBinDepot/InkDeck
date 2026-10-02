@@ -115,13 +115,23 @@ static std::vector<Entry> quickList(const String& dir) {
   return out;
 }
 
-uint64_t dirSize(const String& path, uint32_t* files, uint32_t* dirs) {
+// Sizes where that's quick, SIZE_UNKNOWN for the files of a very big folder
+static std::vector<Entry> sizedList(const String& dir) {
+  std::vector<Entry> q = quickList(dir);
+  if (q.size() <= LIST_SIZES_MAX) return rawList(dir);
+  for (auto& e : q) if (!e.dir) e.size = SIZE_UNKNOWN;
+  return q;
+}
+
+uint64_t dirSize(const String& path, uint32_t* files, uint32_t* dirs, bool* partial) {
   if (!isMounted) return 0;
   if (!isDir(path)) { if (files) (*files)++; return fileSize(path); }
   uint64_t total = 0;
-  for (const auto& e : rawList(path)) {
-    if (e.dir) { if (dirs) (*dirs)++; total += dirSize(path + "/" + e.name, files, dirs); }
-    else { total += e.size; if (files) (*files)++; }
+  for (const auto& e : sizedList(path)) {
+    if (e.dir) { if (dirs) (*dirs)++; total += dirSize(path + "/" + e.name, files, dirs, partial); continue; }
+    if (files) (*files)++;
+    if (e.size == SIZE_UNKNOWN) { if (partial) *partial = true; }
+    else total += e.size;
   }
   return total;
 }
@@ -140,9 +150,19 @@ bool removeTree(const String& path) {
 
 bool rename(const String& from, const String& to) {
   if (!isMounted || !SD.exists(from.c_str())) return false;
+  if (from == to) return true;
   mkdirs(parentOf(to));
-  if (SD.exists(to.c_str())) SD.remove(to.c_str());
-  bool ok = SD.rename(from.c_str(), to.c_str());
+  bool ok;
+  if (from.equalsIgnoreCase(to)) {
+    // Only the capitals change. FAT names aren't case-sensitive, so `to` "exists":
+    // it's this same file, and must not be deleted. Go through a temporary name.
+    const String tmp = from + ".ren~";
+    ok = SD.rename(from.c_str(), tmp.c_str());
+    if (ok && !(ok = SD.rename(tmp.c_str(), to.c_str()))) SD.rename(tmp.c_str(), from.c_str());
+  } else {
+    if (SD.exists(to.c_str())) SD.remove(to.c_str());
+    ok = SD.rename(from.c_str(), to.c_str());
+  }
   Serial.printf("[sd] rename %s -> %s: %s\n", from.c_str(), to.c_str(), ok ? "ok" : "FAILED");
   return ok;
 }
@@ -321,7 +341,7 @@ int recover() {
 std::vector<Entry> list(const String& dir) {
   std::vector<Entry> out;
   if (!isMounted) return out;
-  for (const auto& e : rawList(dir))
+  for (const auto& e : sizedList(dir))
     if (!e.name.startsWith(".") && !e.name.endsWith(".tmp") && !e.name.endsWith(".tmp~") && !e.name.endsWith(".bak~"))
       out.push_back(e);
   std::sort(out.begin(), out.end(), [](const Entry& a, const Entry& b) {

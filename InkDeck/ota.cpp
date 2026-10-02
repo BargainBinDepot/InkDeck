@@ -43,16 +43,18 @@ bool inspect(const String& path, String& version, uint32_t& size, String& why) {
     }
   }
 
-  // Look for the InkDeck tag to make sure it's our firmware, and read its version
+  // Look for the InkDeck tag to make sure it's our firmware, and read its version.
+  // The bare tag text also appears on its own (it's this search pattern, MARKER),
+  // so a match with no version after it is skipped and the search goes on.
   auto s = Storage::openReader(path);
   const size_t mlen = strlen(MARKER);
   size_t matched = 0;
   int c;
-  while ((c = s->read()) >= 0) {
+  while (!version.length() && (c = s->read()) >= 0) {
     if (c == MARKER[matched]) {
       if (++matched == mlen) {
         while ((c = s->read()) > 0 && c < 127 && version.length() < 24) version += (char)c;
-        break;
+        matched = (c == MARKER[0]) ? 1 : 0;
       }
     } else {
       matched = (c == MARKER[0]) ? 1 : 0;

@@ -1,5 +1,5 @@
 // =====================================================================
-//  InkDeck firmware v0.20
+//  InkDeck firmware v0.21
 //  ESP32-S3 + CardKB + e-paper (or the ST7789 TFT preview)
 //
 //  v0.1   display HAL, CardKB input, paged launcher, app framework
@@ -48,6 +48,9 @@
 //         Keys typed while the screen refreshes are queued instead of lost.
 //  v0.20  3.7": third refresh level, the deep clean (stock waveform, ~3 s).
 //         Settings > "Deep clean screen", and "Full refresh type" Fast/Deep.
+//  v0.21  Fixes: firmware updates no longer rejected when the bare tag comes
+//         first; renaming to different capitals no longer deletes the file;
+//         Files / Get Info quick on huge folders; no sleep while on USB.
 //
 //  Arduino IDE: Tools -> Partition Scheme -> "Huge APP (3MB No OTA/1MB SPIFFS)"
 //  with Flash Size 4MB (the default partition is too small for WiFi + Lua).

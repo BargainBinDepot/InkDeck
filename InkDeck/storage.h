@@ -19,8 +19,9 @@ namespace Storage {
 struct Entry {
   String   name;     // file or folder name (no path)
   bool     dir;
-  uint32_t size;
+  uint32_t size;     // SIZE_UNKNOWN in folders too big to measure quickly (see list())
 };
+const uint32_t SIZE_UNKNOWN = 0xFFFFFFFF;
 
 bool begin();                     // mount (safe to call again to retry)
 bool mounted();
@@ -40,10 +41,15 @@ bool writeText(const String& path, const String& data);   // crash-safe: see com
 String tempPath(const String& path);
 bool commit(const String& path);
 int  recover();                                    // at boot: finish or undo interrupted saves
-std::vector<Entry> list(const String& dir);               // folders first, then A-Z
+// Folders first, then A-Z. In a folder with more than LIST_SIZES_MAX entries
+// (a book's pictures), file sizes are SIZE_UNKNOWN: measuring each one costs a
+// search of the whole folder, which takes minutes on thousands of files.
+const size_t LIST_SIZES_MAX = 200;
+std::vector<Entry> list(const String& dir);
 
-bool rename(const String& from, const String& to);   // replaces `to` if it exists
-uint64_t dirSize(const String& path, uint32_t* files = nullptr, uint32_t* dirs = nullptr);   // total bytes, recursive
+bool rename(const String& from, const String& to);   // replaces `to` if it exists; can change just the capitals
+// Total bytes, recursive. *partial is set if some sizes couldn't be measured (big folders)
+uint64_t dirSize(const String& path, uint32_t* files = nullptr, uint32_t* dirs = nullptr, bool* partial = nullptr);
 String parentOf(const String& path);
 
 // Fast sequential byte reader (buffered), used by the text engine

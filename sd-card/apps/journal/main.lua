@@ -908,7 +908,7 @@ function key(k, ch, fn)
       if name == "" then return false end
       if not name:lower():match("%.md$") and not name:lower():match("%.txt$") then name = name .. EXT end
       if name ~= renameFrom then
-        if file.exists(DOCS .. "/" .. name) then nameWarn = name; return end
+        if name:lower() ~= renameFrom:lower() and file.exists(DOCS .. "/" .. name) then nameWarn = name; return end
         if file.rename(DOCS .. "/" .. renameFrom, DOCS .. "/" .. name) then
           if fileName == renameFrom then fileName = name end
           message = "Renamed to " .. name

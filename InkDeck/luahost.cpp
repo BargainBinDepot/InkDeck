@@ -492,7 +492,8 @@ static int l_list(lua_State* Ls) {
     lua_createtable(Ls, 0, 3);
     lua_pushstring(Ls, ents[i].name.c_str());  lua_setfield(Ls, -2, "name");
     lua_pushboolean(Ls, ents[i].dir);          lua_setfield(Ls, -2, "dir");
-    lua_pushinteger(Ls, ents[i].size);         lua_setfield(Ls, -2, "size");
+    const uint32_t sz = ents[i].size != Storage::SIZE_UNKNOWN ? ents[i].size : Storage::fileSize(p + "/" + ents[i].name);
+    lua_pushinteger(Ls, sz);                   lua_setfield(Ls, -2, "size");
     lua_rawseti(Ls, -2, i + 1);
   }
   return 1;

@@ -147,7 +147,7 @@ static void hList() {
     if (!first) j += ",";
     first = false;
     j += "{\"name\":" + jstr(e.name) + ",\"dir\":" + String(e.dir ? "true" : "false") +
-         ",\"size\":" + String(e.size) + "}";
+         ",\"size\":" + (e.size == Storage::SIZE_UNKNOWN ? String("null") : String(e.size)) + "}";
   }
   sendJson(j + "]");
 }
@@ -176,7 +176,7 @@ static void hRename() {
   const String from = server.arg("from"), to = server.arg("to");
   if (!allowedPath(from, false) || !allowedPath(to, false)) return sendErr(403, "path not allowed");
   if (!Storage::exists(from)) return sendErr(404, "not found");
-  if (Storage::exists(to)) return sendErr(409, "a file with that name already exists");
+  if (Storage::exists(to) && !to.equalsIgnoreCase(from)) return sendErr(409, "a file with that name already exists");
   if (!Storage::rename(from, to)) return sendErr(500, "rename failed");
   event("Renamed " + to.substring(to.lastIndexOf('/') + 1));
   sendJson("{\"ok\":true}");

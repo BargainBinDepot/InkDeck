@@ -21,12 +21,19 @@ button.x{padding:1px 9px;font-size:12px;margin-left:4px}
 table{width:100%;border-collapse:collapse;background:#fff;border:1px solid #000}
 td{padding:5px 10px;border-bottom:1px solid var(--soft);vertical-align:middle}td.r{text-align:right;white-space:nowrap}
 input[type=text]{font:inherit;padding:3px 6px;border:1px solid #000;border-radius:0;width:100%}
+.ask{border:2px solid #000;box-shadow:3px 3px 0 #000;padding:10px 12px;margin-top:10px;display:none}
+.ask p{margin:4px 0 8px}
 </style></head><body>
 
 <h2>Upload a book</h2>
 <p class="mute">EPUB, MOBI and AZW3 are converted here in your browser, pictures included, then sent to the device. PDFs are shown as their pages, scaled to the screen's width: scroll down to read. Plain .txt works too. Books with DRM (copy protection) can't be converted.</p>
 <div class="box">
   <div class="drop" id="drop"><input type="file" id="file" accept=".epub,.mobi,.azw3,.azw,.pdf,.txt"><span id="dropText">Click or drop an EPUB, MOBI, AZW3, PDF or TXT file</span></div>
+  <div style="margin-top:10px;display:flex;gap:8px;align-items:center">
+    <label for="title"><b>Title:</b></label>
+    <input type="text" id="title" maxlength="60" placeholder="Pick a book first" disabled>
+  </div>
+  <div class="mute" id="titleNote" style="margin:4px 0 0"></div>
   <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
     <label for="pstyle"><b>Pictures:</b></label>
     <select id="pstyle" style="font:inherit;padding:2px 4px;border:1px solid #000">
@@ -46,6 +53,8 @@ input[type=text]{font:inherit;padding:3px 6px;border:1px solid #000;border-radiu
   </div>
   <div class="bar" id="bar"><div id="barFill"></div></div>
   <div id="st"></div>
+  <div class="ask" id="ask"><b>Upload failed</b><p id="askMsg"></p>
+    <button class="b" id="askRetry">Try again</button><button class="b" id="askCancel">Cancel</button></div>
   <div style="margin-top:10px"><button class="b" id="go" disabled>Convert &amp; upload</button></div>
 </div>
 
@@ -58,7 +67,7 @@ input[type=text]{font:inherit;padding:3px 6px;border:1px solid #000;border-radiu
 const APP='/apps/ereader', DIR=APP+'/books', CACHE=APP+'/cache';
 const $=s=>document.querySelector(s), enc=encodeURIComponent;
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const size=b=>b<1024?b+' B':b<1048576?(b/1024).toFixed(1)+' KB':(b/1048576).toFixed(1)+' MB';
+const size=b=>b==null?'':b<1024?b+' B':b<1048576?(b/1024).toFixed(1)+' KB':(b/1048576).toFixed(1)+' MB';
 let picked=null;
 
 // Picture style, saved on the device so it's the same from any computer
@@ -92,10 +101,32 @@ function bar(p){$('#bar').style.display=p==null?'none':'block';$('#barFill').sty
 
 async function api(u,o){const r=await fetch(u,o);const t=await r.text();if(!r.ok)throw new Error(t||r.status);return t?JSON.parse(t):{}}
 // data: a string (text) or bytes (Uint8Array / ArrayBuffer / Blob)
+// If a file doesn't go through, ask: Try again (just that file, then carry on) or Cancel.
 async function upload(path,data){
   const blob=data instanceof Blob?data:new Blob([data],{type:typeof data==='string'?'text/plain':'application/octet-stream'});
-  const fd=new FormData();fd.append('file',blob,path.split('/').pop());
-  const r=await fetch('/api/upload?path='+enc(path),{method:'POST',body:fd});if(!r.ok)throw new Error(await r.text());
+  const name=path.split('/').pop();
+  for(;;){
+    let why;
+    try{
+      const fd=new FormData();fd.append('file',blob,name);
+      const r=await fetch('/api/upload?path='+enc(path),{method:'POST',body:fd});
+      if(r.ok)return;
+      why=(await r.text())||('error '+r.status);
+    }catch(e){why='lost the connection to the device'}
+    if(!await askRetry(name,why))throw Object.assign(new Error('Upload cancelled'),{cancelled:true});
+  }
+}
+// Shows the prompt and waits: true = try again, false = cancel
+function askRetry(name,why){
+  const box=$('#ask');
+  $('#askMsg').textContent='Couldn\'t send '+name+': '+why+'. Check that the device is on and the Uploader is still open.';
+  box.style.display='block';box.scrollIntoView({block:'nearest'});$('#askRetry').focus();
+  return new Promise(done=>{
+    const finish=v=>{box.style.display='none';box.onkeydown=null;done(v)};
+    $('#askRetry').onclick=()=>finish(true);
+    $('#askCancel').onclick=()=>finish(false);
+    box.onkeydown=e=>{if(e.key==='Escape')finish(false)};
+  });
 }
 async function download(path){const r=await fetch('/api/download?path='+enc(path));if(!r.ok)throw new Error('not found');return r.text()}
 async function downloadBytes(path){const r=await fetch('/api/download?path='+enc(path));if(!r.ok)throw new Error('not found');return r.arrayBuffer()}
@@ -133,6 +164,25 @@ input.onchange=()=>pick(input.files[0]);
 function pick(f){
   if(!f||!/\.(epub|mobi|azw3?|pdf|txt)$/i.test(f.name))return status('Please choose an EPUB, MOBI, AZW3, PDF or TXT file.',1);
   picked=f;$('#dropText').textContent=f.name;$('#go').disabled=false;status('');
+  const t=$('#title');t.disabled=false;
+  t.value=f.name.replace(/\.(epub|mobi|azw3?|pdf|txt)$/i,'').replace(/_/g,' ').trim();
+  titleNote();t.focus();t.select();
+}
+// The name the book gets on the device: from the title box, or the file name
+function chosenBase(){return safeBase(($('#title').value.trim()||picked.name)+'.txt')}
+let bookNames=new Set();                                 // books on the device, filled by list()
+function titleNote(){
+  if(!picked)return $('#titleNote').textContent='';
+  const base=chosenBase(),shown=base.replace(/_/g,' ');
+  let n=shown!==$('#title').value.trim()?'Saved as "'+shown+'" (letters, numbers, spaces, - and \' only).':'';
+  if(bookNames.has(base.toLowerCase()))n+=(n?' ':'')+'A book with this title is already on the device: uploading replaces it.';
+  $('#titleNote').textContent=n;
+}
+$('#title').oninput=titleNote;
+$('#title').onkeydown=e=>{if(e.key==='Enter'&&!$('#go').disabled)$('#go').click()};
+function resetPick(){
+  picked=null;input.value='';$('#dropText').textContent='Click or drop an EPUB, MOBI, AZW3, PDF or TXT file';
+  $('#go').disabled=true;const t=$('#title');t.value='';t.disabled=true;$('#titleNote').textContent='';
 }
 
 function safeBase(name){
@@ -198,16 +248,27 @@ async function convertAndUpload(buf,base,{keepSource}){
 
 $('#go').onclick=async()=>{
   if(!picked)return;
-  $('#go').disabled=true;
+  const base=chosenBase(),shown=base.replace(/_/g,' ');
+  const replacing=bookNames.has(base.toLowerCase());
+  if(replacing&&!confirm('"'+shown+'" is already on the device. Replace it?'))return;
+  $('#go').disabled=true;$('#title').disabled=true;
   try{
-    const base=safeBase(picked.name);
     const r=await convertAndUpload(await picked.arrayBuffer(),base,{keepSource:true});
     const what=r.pdfPages?' ('+r.pdfPages+' PDF pages)':r.pictures?' with '+r.pictures+' picture'+(r.pictures===1?'':'s'):'';
-    status('Uploaded "'+base.replace(/_/g,' ')+'"'+what+'. Exit the Uploader on the device to read it.');
-    await list();
-  }catch(e){console.error(e);status('Failed: '+e.message,1)}
+    status('Uploaded "'+shown+'"'+what+'. Exit the Uploader on the device to read it.');
+  }catch(e){
+    console.error(e);
+    if(!e.cancelled)status('Failed: '+e.message,1);
+    else if(replacing)status('Upload cancelled. The copy of "'+shown+'" already on the device may be missing pictures: upload it again to fix it.',1);
+    else{                                                   // a new book: don't leave half of it on the card
+      status('Upload cancelled. Removing the partly uploaded files...');
+      for(const ext of ['.txt','.raw','.src','.img','.view'])await remove(DIR+'/'+base+ext);
+      status('Upload cancelled.');
+    }
+  }
   setTimeout(()=>bar(null),1500);
-  picked=null;input.value='';$('#dropText').textContent='Click or drop an EPUB, MOBI, AZW3, PDF or TXT file';$('#go').disabled=true;
+  resetPick();
+  await list();
 };
 
 // ---------- book list ----------
@@ -216,6 +277,7 @@ async function list(){
   let entries=[];try{entries=await api('/api/list?dir='+enc(DIR))}catch(e){}
   const names=new Set(entries.map(e=>e.name));
   const books=entries.filter(e=>!e.dir&&/\.txt$/i.test(e.name));
+  bookNames=new Set(books.map(b=>b.name.replace(/\.txt$/i,'').toLowerCase()));titleNote();
   tb.innerHTML=books.length?'':'<tr><td class="mute">No books yet</td></tr>';
   for(const b of books){
     const base=b.name.replace(/\.txt$/i,'');
@@ -229,7 +291,7 @@ async function list(){
       await dropCaches(b.name);list();
     };
     tr.querySelector('.rn').onclick=()=>rename(tr,b.name,names);
-    const rp=tr.querySelector('.rp');if(rp)rp.onclick=()=>reprocess(b.name,names).then(()=>status('Re-processed '+base.replace(/_/g,' '))).catch(e=>status('Failed: '+e.message,1)).finally(()=>{setTimeout(()=>bar(null),1500);list()});
+    const rp=tr.querySelector('.rp');if(rp)rp.onclick=()=>reprocess(b.name,names).then(()=>status('Re-processed '+base.replace(/_/g,' '))).catch(e=>status(e.cancelled?'Re-processing cancelled.':'Failed: '+e.message,1)).finally(()=>{setTimeout(()=>bar(null),1500);list()});
     tb.appendChild(tr);
   }
 }
@@ -273,7 +335,7 @@ $('#all').onclick=async()=>{
   const todo=entries.filter(e=>/\.txt$/i.test(e.name)&&(names.has(e.name.replace(/\.txt$/i,'.raw'))||names.has(e.name.replace(/\.txt$/i,'.src'))));
   if(!todo.length)return status('No books have a saved original.');
   try{for(const b of todo)await reprocess(b.name,names);status('Re-processed '+todo.length+' book(s).')}
-  catch(e){status('Failed: '+e.message,1)}
+  catch(e){status(e.cancelled?'Re-processing cancelled.':'Failed: '+e.message,1)}
   setTimeout(()=>bar(null),1500);
   list();
 };

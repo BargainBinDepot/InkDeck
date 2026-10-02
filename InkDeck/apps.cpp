@@ -169,6 +169,7 @@ enum class HomeUi { Grid, Info, Menu, Move, Picker, Name };
 static HomeUi ui = HomeUi::Grid;
 static uint64_t infoBytes = 0;
 static uint32_t infoFiles = 0;
+static bool infoPartial = false;                               // some sizes unknown (very big folders)
 
 enum { A_OPEN, A_INFO, A_MOVE, A_TOFOLDER, A_NEWFOLDER, A_RENAME, A_DELFOLDER, A_SORT, A_CLOSE };
 struct MenuItem { const char* label; const char* key; int action; };
@@ -439,8 +440,9 @@ static void openInfo() {
   const Tile& t = selTile();
   infoBytes = 0;
   infoFiles = 0;
+  infoPartial = false;
   if (t.folder < 0 && apps[t.app].lua >= 0)
-    infoBytes = Storage::dirSize(String(APPS_DIR) + "/" + luaApps[apps[t.app].lua].id, &infoFiles);
+    infoBytes = Storage::dirSize(String(APPS_DIR) + "/" + luaApps[apps[t.app].lua].id, &infoFiles, nullptr, &infoPartial);
   ui = HomeUi::Info;
 }
 
@@ -486,7 +488,7 @@ static void drawInfo() {
     about = names.length() ? names : String("Empty. Use Move to Folder to add apps.");
   } else {
     if (li) {
-      details.push_back(String(APPS_DIR) + "/" + li->id + "  " + humanBytes(infoBytes) + ", " +
+      details.push_back(String(APPS_DIR) + "/" + li->id + "  " + (infoPartial ? "over " : "") + humanBytes(infoBytes) + ", " +
                         String(infoFiles) + (infoFiles == 1 ? " file" : " files"));
       if (li->tabLabel.length()) details.push_back("Web tab: " + li->tabLabel);
     }
@@ -941,6 +943,7 @@ static String fMsg;
 static bool fConfirm = false, fDelYes = false;
 static uint32_t fDelFiles = 0, fDelDirs = 0;
 static uint64_t fDelBytes = 0;
+static bool fDelPartial = false;                 // some sizes unknown (very big folders)
 
 static const int FILE_ROWS = (SCREEN_H - BODY_Y - 2 * T) / LINE_H - 1;   // leave the hint line
 static const int VIEW_ROWS = (SCREEN_H - BODY_Y - 4 * T) / LINE_H;
@@ -996,7 +999,10 @@ static void filesAskDelete() {
   if (fEnts.empty()) return;
   const Storage::Entry& e = fEnts[fSel];
   fDelFiles = fDelDirs = 0;
-  fDelBytes = e.dir ? Storage::dirSize(joinPath(fPath, e.name), &fDelFiles, &fDelDirs) : e.size;
+  fDelPartial = false;
+  const String p = joinPath(fPath, e.name);
+  fDelBytes = e.dir ? Storage::dirSize(p, &fDelFiles, &fDelDirs, &fDelPartial)
+            : e.size != Storage::SIZE_UNKNOWN ? e.size : Storage::fileSize(p);
   fDelYes = false;                               // Cancel is the default
   fConfirm = true;
 }
@@ -1076,7 +1082,7 @@ static void filesDrawList() {
     for (const auto& e : fEnts) {
       String n = e.dir ? e.name + "/" : e.name;
       if ((int)n.length() > nameCols) n = n.substring(0, nameCols - 2) + "..";
-      String right = e.dir ? String(">") : humanSize(e.size);
+      String right = e.dir ? String(">") : e.size == Storage::SIZE_UNKNOWN ? String("") : humanSize(e.size);
       while ((int)(n.length() + right.length()) < TEXT_COLS) n += ' ';
       items.push_back(n + right);
     }
@@ -1118,14 +1124,14 @@ static void filesDraw() {
       } else {
         String what = countPhrase(fDelFiles, "file", "files");
         if (fDelDirs) what += " in " + countPhrase(fDelDirs, "folder", "folders");
-        lines.push_back("It contains " + what + " (" + humanSize(fDelBytes) + ").");
+        lines.push_back("It contains " + what + (fDelPartial ? String(".") : " (" + humanSize(fDelBytes) + ")."));
         lines.push_back("They will all be deleted.");
       }
       if (path == APPS_DIR)   lines.push_back("This is every installed app and its data.");
       if (path == NOTES_DIR)  lines.push_back("These are all your notes.");
       if (path == SYSTEM_DIR) lines.push_back("This holds your WiFi and clock settings.");
     } else {
-      lines.push_back(humanSize(e.size) + ". This can't be undone.");
+      lines.push_back(humanSize(fDelBytes) + ". This can't be undone.");
     }
     drawDialog(String("Delete ") + (e.dir ? "folder " : "") + "\"" + e.name + "\"?", lines, "Cancel", "Delete", fDelYes);
   }

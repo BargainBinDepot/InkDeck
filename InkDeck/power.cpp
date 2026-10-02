@@ -7,6 +7,9 @@
 #include "webui.h"
 #include "clock.h"
 #include "esp_sleep.h"
+#if ARDUINO_USB_MODE
+#include "driver/usb_serial_jtag.h"
+#endif
 
 namespace Power {
 
@@ -36,8 +39,19 @@ void begin() {
   Serial.printf("[power] sleep after %lu s%s\n", (unsigned long)timeout, timeout ? "" : " (never)");
 }
 
+// Plugged into a computer (not just a charger): light sleep turns the ESP32-S3's
+// USB off, which drops the Serial Monitor and makes uploads fail
+static bool usbHost() {
+#if ARDUINO_USB_MODE
+  return usb_serial_jtag_is_connected();
+#else
+  return false;
+#endif
+}
+
 static bool mustStayAwake() {
   return appAwake
+      || usbHost()
       || WebUI::mode() != WebUI::Mode::Off      // the Uploader's web page would drop
       || Clock::busy();                         // finishing an internet time sync
 }

@@ -74,7 +74,7 @@ td{padding:5px 10px;border-bottom:1px solid var(--soft);vertical-align:middle}td
 <script>
 const $=s=>document.querySelector(s),enc=encodeURIComponent;
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const size=b=>b<1024?b+' B':b<1048576?(b/1024).toFixed(1)+' KB':(b/1048576).toFixed(1)+' MB';
+const size=b=>b==null?'':b<1024?b+' B':b<1048576?(b/1024).toFixed(1)+' KB':(b/1048576).toFixed(1)+' MB';
 let tabs=[],cur=null;
 async function j(u,o){const r=await fetch(u,o);const t=await r.text();if(!r.ok)throw new Error(t||r.status);return t?JSON.parse(t):{}}
 async function up(path,file){const fd=new FormData();fd.append('file',file,file.name);
