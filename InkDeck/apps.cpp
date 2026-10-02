@@ -783,11 +783,11 @@ void begin() {
   current = -1;
   inFolder = -1;
   buildAppList();
-  requestRedraw(Refresh::Full);
+  requestRedraw(Refresh::Clean);             // first picture on the panel
 }
 
 void requestRedraw(Refresh mode) {
-  if (!dirty || mode == Refresh::Full) pending = mode;
+  if (!dirty || mode > pending) pending = mode;
   dirty = true;
 }
 
@@ -1243,7 +1243,7 @@ static void sysActivate() {
         Power::setTimeoutSec(SLEEP_CHOICES[(i + 1) % n]);
         AppMgr::requestRedraw(Refresh::Partial);
       }
-      else if (sysSel == 2) { sysMsg = "Screen refreshed"; AppMgr::requestRedraw(Refresh::Full); }
+      else if (sysSel == 2) { sysMsg = "Screen refreshed"; AppMgr::requestRedraw(Refresh::Clean); }
       else { sysRollAsk = true; sysRollYes = false; AppMgr::requestRedraw(Refresh::Partial); }
       break;
     case SysScreen::Clock:

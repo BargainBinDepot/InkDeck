@@ -22,6 +22,7 @@ bool begin() {
     SD.end();                     // clean up a previous failed attempt before retrying
   }
 
+  Serial.println("[sd] mounting card...");
   if (!SD.begin(PIN_SD_CS, sdSPI, SD_SPI_HZ)) {
     Serial.println("[sd] mount failed (no card, wiring, or not FAT32)");
     return false;
@@ -96,6 +97,24 @@ static std::vector<Entry> rawList(const String& dir) {
   return out;
 }
 
+// Names and folder flags only, straight from the directory listing. rawList()
+// opens every entry to get its size, and each open searches the folder from the
+// top, so it slows down with the square of the file count (minutes on a book's
+// folder of pictures). This stays linear. Also a snapshot.
+static std::vector<Entry> quickList(const String& dir) {
+  std::vector<Entry> out;
+  File root = SD.open(dir.c_str());
+  if (!root || !root.isDirectory()) return out;
+  bool isDir = false;
+  for (String name = root.getNextFileName(&isDir); name.length(); name = root.getNextFileName(&isDir)) {
+    int slash = name.lastIndexOf('/');           // comes back as a full path
+    if (slash >= 0) name = name.substring(slash + 1);
+    out.push_back({ name, isDir, 0 });
+  }
+  root.close();
+  return out;
+}
+
 uint64_t dirSize(const String& path, uint32_t* files, uint32_t* dirs) {
   if (!isMounted) return 0;
   if (!isDir(path)) { if (files) (*files)++; return fileSize(path); }
@@ -110,7 +129,7 @@ uint64_t dirSize(const String& path, uint32_t* files, uint32_t* dirs) {
 bool removeTree(const String& path) {
   if (!isMounted || path == "/") return false;
   if (!isDir(path)) return remove(path);
-  for (const auto& e : rawList(path)) {
+  for (const auto& e : quickList(path)) {
     const String child = path + "/" + e.name;
     if (e.dir) removeTree(child); else SD.remove(child.c_str());
   }
@@ -251,7 +270,7 @@ bool writeText(const String& path, const String& data) {
 // Walk the card and repair interrupted saves. Returns how many it fixed.
 static int recoverDir(const String& dir) {
   int fixed = 0;
-  for (const auto& e : rawList(dir)) {
+  for (const auto& e : quickList(dir)) {
     const String p = (dir == "/" ? String("") : dir) + "/" + e.name;
     if (e.dir) { fixed += recoverDir(p); continue; }
     auto baseOf = [&](const char* suffix) { return p.substring(0, p.length() - strlen(suffix)); };

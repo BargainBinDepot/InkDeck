@@ -12,7 +12,8 @@ void Screen::begin() {
 }
 
 void Screen::refresh(Refresh mode) {
-  bool full = (mode == Refresh::Full) || _forceFull || (_partials >= FULL_REFRESH_EVERY);
+  bool full = (mode == Refresh::Clean) || _forceFull || (_partials >= FULL_REFRESH_EVERY)
+           || (mode == Refresh::Full && _partials >= FULL_REFRESH_SOFT);
   uint32_t t = millis();
   backendPush(full);
   _lastMs = millis() - t;

@@ -1,5 +1,5 @@
 // =====================================================================
-//  InkDeck firmware v0.17
+//  InkDeck firmware v0.18
 //  ESP32-S3 + CardKB + e-paper (or the ST7789 TFT preview)
 //
 //  v0.1   display HAL, CardKB input, paged launcher, app framework
@@ -41,6 +41,9 @@
 //  v0.17  Pictures in books: \x02img\x02 markers in the text engine, screen.image
 //         fitted into a rectangle, bounded image cache. Fixed page drift after
 //         words longer than a line.
+//  v0.18  WeAct 3.7" panel. Boot-time save check no longer crawls on cards
+//         with big picture folders; app switches no longer force a full
+//         refresh, automatic full refresh every 100 partials (was 10).
 //
 //  Arduino IDE: Tools -> Partition Scheme -> "Huge APP (3MB No OTA/1MB SPIFFS)"
 //  with Flash Size 4MB (the default partition is too small for WiFi + Lua).

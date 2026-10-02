@@ -11,7 +11,11 @@
 #include <Adafruit_GFX.h>
 #include "config.h"
 
-enum class Refresh { Partial, Full };
+// Partial = fast update. Full = the screen changed a lot (app switch, new mode):
+// cleaned with a full refresh only if FULL_REFRESH_SOFT partials have built up
+// since the last one, otherwise partial. Clean = always a full refresh.
+// Ordered by strength: a pending redraw keeps the strongest one requested.
+enum class Refresh { Partial, Full, Clean };
 
 constexpr uint16_t INK   = 1;   // pixel set
 constexpr uint16_t PAPER = 0;   // pixel clear
@@ -26,8 +30,8 @@ public:
 
   void clear() { _c.fillScreen(PAPER); _r.fillScreen(PAPER); }
 
-  // Push canvases to the panel. Full = flash/clean, Partial = fast.
-  // Partial is automatically promoted to Full every FULL_REFRESH_EVERY calls.
+  // Push canvases to the panel (see Refresh above). Any refresh is promoted
+  // to a full one after FULL_REFRESH_EVERY partials in a row.
   void refresh(Refresh mode);
   void forceFullNext() { _forceFull = true; }
   uint32_t partialCount() const { return _partials; }

@@ -12,7 +12,7 @@
 //    43, 44        UART0 TX/RX
 // =====================================================================
 
-#define FW_VERSION "v0.17"
+#define FW_VERSION "v0.18"
 #define BRAND_NAME "InkDeck"
 
 // ---------------- Which display is plugged in ----------------
@@ -130,7 +130,8 @@
 #define PIN_WAKE_BTN    5   // RTC-capable GPIO for deep-sleep wake
 
 // ---------------- Refresh policy ----------------
-#define FULL_REFRESH_EVERY  10    // force a full refresh after N partials (ghosting control)
+#define FULL_REFRESH_EVERY  100   // force a full refresh after N partials in a row (ghosting control)
+#define FULL_REFRESH_SOFT   30    // app switches etc. get a full refresh only after this many partials
 #define EMULATE_EPD_TIMING  0     // TFT only: 1 = add fake e-paper delays
 #define EPD_PARTIAL_MS      400
 #define EPD_FULL_MS         3000

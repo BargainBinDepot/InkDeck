@@ -11,7 +11,8 @@ static bool probeCardKB() {
 
 bool CardKB::begin() {
   Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL, I2C_HZ);
-  _present = probeCardKB();
+  // The CardKB's own chip starts up slower than the ESP32: give it up to half a second
+  for (int i = 0; i < 10 && !(_present = probeCardKB()); i++) delay(50);
   _lastProbe = millis();
   Serial.printf("[kb] CardKB %s at 0x%02X (SDA=%d SCL=%d)\n",
                 _present ? "found" : "NOT found", CARDKB_ADDR, PIN_I2C_SDA, PIN_I2C_SCL);
