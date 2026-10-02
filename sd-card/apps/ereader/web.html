@@ -24,9 +24,9 @@ input[type=text]{font:inherit;padding:3px 6px;border:1px solid #000;border-radiu
 </style></head><body>
 
 <h2>Upload a book</h2>
-<p class="mute">EPUB and MOBI are converted here in your browser, pictures included (sized for your screen and turned into fine black-and-white dot patterns that keep their original tones), then sent to the device. Plain .txt works too.</p>
+<p class="mute">EPUB, MOBI and AZW3 are converted here in your browser, pictures included, then sent to the device. PDFs are shown as their pages, scaled to the screen's width: scroll down to read. Plain .txt works too. Books with DRM (copy protection) can't be converted.</p>
 <div class="box">
-  <div class="drop" id="drop"><input type="file" id="file" accept=".epub,.mobi,.txt"><span id="dropText">Click or drop an EPUB, MOBI or TXT file</span></div>
+  <div class="drop" id="drop"><input type="file" id="file" accept=".epub,.mobi,.azw3,.azw,.pdf,.txt"><span id="dropText">Click or drop an EPUB, MOBI, AZW3, PDF or TXT file</span></div>
   <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
     <label for="pstyle"><b>Pictures:</b></label>
     <select id="pstyle" style="font:inherit;padding:2px 4px;border:1px solid #000">
@@ -35,6 +35,14 @@ input[type=text]{font:inherit;padding:3px 6px;border:1px solid #000;border-radiu
       <option value="linear">Exact light</option>
     </select>
     <span class="mute" id="pdesc" style="margin:0"></span>
+  </div>
+  <div style="margin-top:6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <label for="protate"><b>Tall pictures:</b></label>
+    <select id="protate" style="font:inherit;padding:2px 4px;border:1px solid #000">
+      <option value="1">Turn sideways to fit</option>
+      <option value="0">Keep upright</option>
+    </select>
+    <span class="mute" id="rdesc" style="margin:0"></span>
   </div>
   <div class="bar" id="bar"><div id="barFill"></div></div>
   <div id="st"></div>
@@ -59,16 +67,24 @@ const STYLES={
   classic:'Atkinson dithering with extra contrast: bold, graphic, like an old Macintosh.',
   linear:'Floyd-Steinberg in linear light: exact average brightness, but looks darker.'
 };
-let pictureStyle='natural';
+let pictureStyle='natural',rotateTall=true;
+const ROTATE_DESC={true:'Tall pictures that would be shrunk are turned a quarter-turn (top to the left) to fill the page.',
+                   false:'Tall pictures stay upright and are shrunk to fit.'};
 async function loadStyle(){
-  try{const t=(await download(APP+'/converter.txt')).match(/pictures=(\w+)/);if(t&&STYLES[t[1]])pictureStyle=t[1]}catch(e){}
+  try{
+    const t=await download(APP+'/converter.txt');
+    const m=t.match(/pictures=(\w+)/);if(m&&STYLES[m[1]])pictureStyle=m[1];
+    const r=t.match(/rotate=(\d)/);if(r)rotateTall=r[1]==='1';
+  }catch(e){}
   $('#pstyle').value=pictureStyle;$('#pdesc').textContent=STYLES[pictureStyle];
+  $('#protate').value=rotateTall?'1':'0';$('#rdesc').textContent=ROTATE_DESC[rotateTall];
+}
+async function saveStyle(){
+  try{await upload(APP+'/converter.txt','pictures='+pictureStyle+'\nrotate='+(rotateTall?1:0)+'\n')}catch(e){}
 }
 function wireStyle(){
-  $('#pstyle').onchange=async()=>{
-    pictureStyle=$('#pstyle').value;$('#pdesc').textContent=STYLES[pictureStyle];
-    try{await upload(APP+'/converter.txt','pictures='+pictureStyle+'\n')}catch(e){}
-  };
+  $('#pstyle').onchange=()=>{pictureStyle=$('#pstyle').value;$('#pdesc').textContent=STYLES[pictureStyle];saveStyle()};
+  $('#protate').onchange=()=>{rotateTall=$('#protate').value==='1';$('#rdesc').textContent=ROTATE_DESC[rotateTall];saveStyle()};
 }
 
 function status(m,bad){const s=$('#st');s.textContent=m;s.className=bad?'err':''}
@@ -115,19 +131,22 @@ drop.ondragleave=()=>drop.classList.remove('over');
 drop.ondrop=e=>{e.preventDefault();drop.classList.remove('over');pick(e.dataTransfer.files[0])};
 input.onchange=()=>pick(input.files[0]);
 function pick(f){
-  if(!f||!/\.(epub|mobi|txt)$/i.test(f.name))return status('Please choose an .epub, .mobi or .txt file.',1);
+  if(!f||!/\.(epub|mobi|azw3?|pdf|txt)$/i.test(f.name))return status('Please choose an EPUB, MOBI, AZW3, PDF or TXT file.',1);
   picked=f;$('#dropText').textContent=f.name;$('#go').disabled=false;status('');
 }
 
 function safeBase(name){
-  return name.replace(/\.(epub|mobi|txt)$/i,'').replace(/\s+/g,'_').replace(/[^A-Za-z0-9_\-']/g,'').slice(0,60)||'book';
+  return name.replace(/\.(epub|mobi|azw3?|pdf|txt)$/i,'').replace(/\s+/g,'_').replace(/[^A-Za-z0-9_\-']/g,'').slice(0,60)||'book';
 }
 
 // What kind of book file this is, from its first bytes
 function kindOf(buf){
   const b=new Uint8Array(buf,0,Math.min(buf.byteLength,68));
   if(b[0]===0x50&&b[1]===0x4B)return 'epub';                                   // "PK": a zip
-  if(String.fromCharCode(...b.slice(60,68))==='BOOKMOBI')return 'mobi';
+  if(String.fromCharCode(...b.slice(0,5))==='%PDF-')return 'pdf';
+  if(String.fromCharCode(...b.slice(60,68))==='BOOKMOBI'){
+    try{return kindleHeader(buf).version>=8?'azw3':'mobi'}catch(e){return 'mobi'}
+  }
   return 'txt';
 }
 
@@ -136,12 +155,32 @@ function kindOf(buf){
 async function convertAndUpload(buf,base,{keepSource}){
   const kind=kindOf(buf);
   status(kind==='txt'?'Reading text...':'Reading '+kind.toUpperCase()+'...');bar(10);
+  const area=await readingArea();
+  if(kind==='pdf'){
+    const {text,bmps,pages}=await extractFromPdf(buf,area,pictureStyle,(i,n)=>{status('Rendering pages... '+i+' / '+n);bar(10+50*i/n)});
+    await remove(DIR+'/'+base+'.img');
+    if(keepSource){status('Uploading the original...');await upload(DIR+'/'+base+'.src',buf)}
+    const t0=Date.now();
+    for(let i=0;i<bmps.length;i++){
+      const left=i?Math.round((Date.now()-t0)/i*(bmps.length-i)/1000):0;
+      status('Uploading pages... '+(i+1)+' / '+bmps.length+(i>4?'  (about '+(left>90?Math.round(left/60)+' min':left+' s')+' left)':''));
+      bar(60+35*(i+1)/bmps.length);
+      await upload(DIR+'/'+base+'.img/'+bmps[i].name,bmps[i].bytes);
+    }
+    await upload(DIR+'/'+base+'.view','pdf '+pages+'\n');     // shown as pages, laid out in pixels
+    await remove(DIR+'/'+base+'.raw');
+    await upload(DIR+'/'+base+'.txt',text);
+    await dropCaches(base+'.txt');
+    bar(100);
+    return {pdfPages:pages};
+  }
+  await remove(DIR+'/'+base+'.view');                      // in case this name was a PDF before
   let book;
   if(kind==='mobi')book=extractFromMobi(buf);
+  else if(kind==='azw3')book=extractFromAzw3(buf);
   else if(kind==='epub')book=await extractFromEpub(await JSZip.loadAsync(buf));
   else book={raw:new TextDecoder('utf-8').decode(buf),images:new Map()};
   bar(25);
-  const area=await readingArea();
   const {text,bmps}=await makePictures(book.raw,book.images,area,pictureStyle,(i,n)=>{status('Converting pictures... '+i+' / '+n);bar(25+45*i/Math.max(1,n))});
   await remove(DIR+'/'+base+'.img');                       // pictures from an earlier conversion
   if(keepSource&&kind!=='txt'){status('Uploading the original...');await upload(DIR+'/'+base+'.src',buf)}
@@ -154,7 +193,7 @@ async function convertAndUpload(buf,base,{keepSource}){
   await upload(DIR+'/'+base+'.txt',transliterate(text));
   await dropCaches(base+'.txt');
   bar(100);
-  return bmps.length;
+  return {pictures:bmps.length};
 }
 
 $('#go').onclick=async()=>{
@@ -162,12 +201,13 @@ $('#go').onclick=async()=>{
   $('#go').disabled=true;
   try{
     const base=safeBase(picked.name);
-    const n=await convertAndUpload(await picked.arrayBuffer(),base,{keepSource:true});
-    status('Uploaded "'+base.replace(/_/g,' ')+'"'+(n?' with '+n+' picture'+(n===1?'':'s'):'')+'. Exit the Uploader on the device to read it.');
+    const r=await convertAndUpload(await picked.arrayBuffer(),base,{keepSource:true});
+    const what=r.pdfPages?' ('+r.pdfPages+' PDF pages)':r.pictures?' with '+r.pictures+' picture'+(r.pictures===1?'':'s'):'';
+    status('Uploaded "'+base.replace(/_/g,' ')+'"'+what+'. Exit the Uploader on the device to read it.');
     await list();
   }catch(e){console.error(e);status('Failed: '+e.message,1)}
   setTimeout(()=>bar(null),1500);
-  picked=null;input.value='';$('#dropText').textContent='Click or drop an EPUB, MOBI or TXT file';$('#go').disabled=true;
+  picked=null;input.value='';$('#dropText').textContent='Click or drop an EPUB, MOBI, AZW3, PDF or TXT file';$('#go').disabled=true;
 };
 
 // ---------- book list ----------
@@ -179,13 +219,13 @@ async function list(){
   tb.innerHTML=books.length?'':'<tr><td class="mute">No books yet</td></tr>';
   for(const b of books){
     const base=b.name.replace(/\.txt$/i,'');
-    const has={raw:names.has(base+'.raw'),src:names.has(base+'.src'),img:names.has(base+'.img')};
+    const has={raw:names.has(base+'.raw'),src:names.has(base+'.src'),img:names.has(base+'.img'),pdf:names.has(base+'.view')};
     const tr=document.createElement('tr');
-    tr.innerHTML=`<td><span class="t">${esc(base.replace(/_/g,' '))}</span>${has.img?' <span class="mute">(pictures)</span>':''}</td><td class="r">${size(b.size)}</td>
+    tr.innerHTML=`<td><span class="t">${esc(base.replace(/_/g,' '))}</span>${has.pdf?' <span class="mute">(PDF pages)</span>':has.img?' <span class="mute">(pictures)</span>':''}</td><td class="r">${size(b.size)}</td>
       <td class="r">${has.raw||has.src?'<button class="x rp">re-process</button>':''}<button class="x rn">rename</button><button class="x dl">delete</button></td>`;
     tr.querySelector('.dl').onclick=async()=>{
       if(!confirm('Delete '+base.replace(/_/g,' ')+'?'))return;
-      for(const ext of ['.txt','.raw','.src','.img'])if(names.has(base+ext))await remove(DIR+'/'+base+ext);
+      for(const ext of ['.txt','.raw','.src','.img','.view'])if(names.has(base+ext))await remove(DIR+'/'+base+ext);
       await dropCaches(b.name);list();
     };
     tr.querySelector('.rn').onclick=()=>rename(tr,b.name,names);
@@ -205,7 +245,7 @@ function rename(tr,name,names){
     const base=safeBase(inp.value.trim()+'.txt');
     if(base===oldBase)return list();
     try{
-      for(const ext of ['.txt','.raw','.src','.img'])                  // the text, its original and its pictures
+      for(const ext of ['.txt','.raw','.src','.img','.view'])          // the text, its original, pictures, PDF flag
         if(names.has(oldBase+ext))await api('/api/rename',{method:'POST',body:new URLSearchParams({from:DIR+'/'+oldBase+ext,to:DIR+'/'+base+ext})});
       await dropCaches(name);await moveProgress(name,base+'.txt');status('Renamed to '+base.replace(/_/g,' '));
     }catch(err){status('Rename failed: '+err.message,1)}
@@ -242,7 +282,9 @@ $('#all').onclick=async()=>{
 //  Pictures: each image placeholder becomes a small 1-bit BMP sized for the
 //  reading area, and a marker the device lays out:  \x02img 007.bmp W H\x02
 // =====================================================================
-const PIC='\u0003';                                        // placeholder: \u0003key\u0003 on its own line
+const PIC='\u0003',ALT='\u0004';                        // placeholder: \u0003key\u0004alt\u0003 on its own line
+const altOf=tag=>{const m=/\balt\s*=\s*["']([^"']*)["']/i.exec(tag);return m?m[1].replace(/[\u0003\u0004\s]+/g,' ').trim():''};
+const placeholder=(key,tag)=>'<p>'+PIC+key+ALT+altOf(tag)+PIC+'</p>';
 
 async function makePictures(raw,images,area,style,progress){
   const keys=[];const re=new RegExp(PIC+'([^'+PIC+']*)'+PIC,'g');let m;
@@ -250,10 +292,10 @@ async function makePictures(raw,images,area,style,progress){
   const made=new Map();const bmps=[];
   for(let i=0;i<keys.length;i++){
     progress(i+1,keys.length);
-    const blob=images.get(keys[i]);
+    const blob=images.get(keys[i].split(ALT)[0]);
     if(!blob)continue;
     try{
-      const pic=await toBmp(blob,area.w,area.h,style);
+      const pic=await toBmp(blob,area.w,area.h,style,rotateTall);
       if(!pic)continue;                                    // tiny spacer / decoration
       const name=String(bmps.length+1).padStart(3,'0')+'.bmp';
       bmps.push({name,bytes:pic.bytes});
@@ -306,16 +348,25 @@ function atkinson(v,w,h,ink){
   }
 }
 
-async function toBmp(blob,maxW,maxH,style='natural'){
+async function toBmp(blob,maxW,maxH,style='natural',rotate=false){
   const img=await createImageBitmap(blob);
   const w0=img.width,h0=img.height;
   if(w0<24&&h0<24)return null;
   const s=Math.min(1,maxW/w0,maxH/h0);
-  const w=Math.max(1,Math.round(w0*s)),h=Math.max(1,Math.round(h0*s));
+  // A tall picture that has to shrink: turned a quarter-turn (top to the left)
+  // it may fit much bigger. Only turn it when that's at least 20% larger.
+  const sTurned=Math.min(1,maxW/h0,maxH/w0);
+  const turn=rotate&&h0>w0&&s<1&&sTurned>s*1.2;
+  const k=turn?sTurned:s;
+  const sw=Math.max(1,Math.round(w0*k)),sh=Math.max(1,Math.round(h0*k));   // scaled, still upright
+  const w=turn?sh:sw,h=turn?sw:sh;                                          // on the page
   if(w<8||h<4)return null;
   const c=document.createElement('canvas');c.width=w;c.height=h;
   const g=c.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,w,h);
-  g.imageSmoothingEnabled=true;g.imageSmoothingQuality='high';g.drawImage(img,0,0,w,h);
+  g.imageSmoothingEnabled=true;g.imageSmoothingQuality='high';
+  if(turn){g.translate(0,h);g.rotate(-Math.PI/2)}          // picture's top ends up on the left
+  g.drawImage(img,0,0,sw,sh);
+  g.setTransform(1,0,0,1,0,0);
   const d=g.getImageData(0,0,w,h).data;
   const n=w*h,grey=new Float32Array(n);let extremes=0;
   for(let i=0;i<n;i++){
@@ -355,6 +406,125 @@ function imageType(bytes){
   if(bytes[0]===0x47&&bytes[1]===0x49)return 'image/gif';
   if(bytes[0]===0x42&&bytes[1]===0x4D)return 'image/bmp';
   return '';
+}
+
+// =====================================================================
+//  PDF: shown as its pages. Each page's text column is scaled to the screen
+//  width and cut into screen-height strips (at blank rows, so no line of text
+//  is split). The device shows one strip per screen: Down scrolls on.
+//  The book's text file is just the strips (and chapter markers from the
+//  PDF's bookmarks); <book>.view tells the eReader to lay it out in pixels.
+// =====================================================================
+async function loadPdfJs(){
+  if(window.pdfjsLib)return window.pdfjsLib;
+  status('Loading the PDF reader...');
+  await new Promise((res,rej)=>{const sc=document.createElement('script');sc.src='pdf.min.js';sc.onload=res;sc.onerror=()=>rej(new Error("Couldn't load pdf.min.js"));document.head.appendChild(sc)});
+  window.pdfjsLib.GlobalWorkerOptions.workerSrc='pdf.worker.min.js';
+  return window.pdfjsLib;
+}
+
+// Render a page at a scale; returns {w, h, grey: Float32Array}
+async function renderGrey(page,scale){
+  const vp=page.getViewport({scale});
+  const c=document.createElement('canvas');c.width=Math.ceil(vp.width);c.height=Math.ceil(vp.height);
+  const g=c.getContext('2d',{willReadFrequently:true});g.fillStyle='#fff';g.fillRect(0,0,c.width,c.height);
+  await page.render({canvasContext:g,viewport:vp}).promise;
+  const d=g.getImageData(0,0,c.width,c.height).data,n=c.width*c.height,grey=new Float32Array(n);
+  for(let i=0;i<n;i++)grey[i]=0.299*d[i*4]+0.587*d[i*4+1]+0.114*d[i*4+2];
+  return {w:c.width,h:c.height,grey};
+}
+
+// Text stays crisp (a threshold); photo areas get dithered in the chosen style.
+// Areas are told apart in 16x16 tiles: photos are full of mid-greys, text isn't.
+function pdfTo1bit(grey,w,h,style){
+  const T=16,tw=Math.ceil(w/T),th=Math.ceil(h/T),photo=new Uint8Array(tw*th);
+  for(let ty=0;ty<th;ty++)for(let tx=0;tx<tw;tx++){
+    let mid=0,n=0;
+    for(let y=ty*T;y<Math.min(h,ty*T+T);y++)for(let x=tx*T;x<Math.min(w,tx*T+T);x++){n++;const v=grey[y*w+x];if(v>50&&v<205)mid++}
+    photo[ty*tw+tx]=mid/n>0.45?1:0;
+  }
+  // grow photo areas by a tile so their edges don't get a hard seam
+  const grown=photo.slice();
+  for(let ty=0;ty<th;ty++)for(let tx=0;tx<tw;tx++)if(photo[ty*tw+tx])
+    for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){const X=tx+dx,Y=ty+dy;if(X>=0&&X<tw&&Y>=0&&Y<th)grown[Y*tw+X]=1}
+  const ink=new Uint8Array(w*h);
+  const isPhoto=(x,y)=>grown[(y/T|0)*tw+(x/T|0)]===1;
+  let any=false;for(const v of grown)if(v){any=true;break}
+  if(any){                                                   // dither the photo areas
+    const v=grey.slice(),pink=new Uint8Array(w*h);
+    if(style==='classic')atkinson(v,w,h,pink);else floydSteinberg(v,w,h,255,pink);
+    for(let y=0;y<h;y++)for(let x=0;x<w;x++)if(isPhoto(x,y))ink[y*w+x]=pink[y*w+x];
+  }
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++)if(!any||!isPhoto(x,y))ink[y*w+x]=grey[y*w+x]<170?1:0;   // text: a little bold
+  return ink;
+}
+
+async function extractFromPdf(buf,area,style,progress){
+  const lib=await loadPdfJs();
+  const doc=await lib.getDocument({data:new Uint8Array(buf)}).promise;
+  const N=doc.numPages;
+
+  // 1. Where's the text column? Sample pages from the body of the book and find
+  //    the left/right edges of their ink, so page margins don't waste the screen.
+  status('Measuring the pages...');
+  const lefts=[],rights=[];
+  const samples=[];for(let k=0;k<Math.min(24,N);k++)samples.push(Math.max(1,Math.min(N,Math.round(N*(0.1+0.8*k/Math.max(1,Math.min(24,N)-1))))));
+  for(const pn of new Set(samples)){
+    const pg=await doc.getPage(pn);const r=await renderGrey(pg,0.5);
+    let l=r.w,rt=-1;
+    for(let y=0;y<r.h;y++)for(let x=0;x<r.w;x++)if(r.grey[y*r.w+x]<200){if(x<l)l=x;if(x>rt)rt=x}
+    if(rt>l){lefts.push(l/r.w);rights.push(rt/r.w)}
+  }
+  lefts.sort((a,b)=>a-b);rights.sort((a,b)=>a-b);
+  let x0=lefts.length?lefts[Math.floor(lefts.length*0.1)]:0.05,x1=rights.length?rights[Math.ceil(rights.length*0.9)-1]:0.95;
+  x0=Math.max(0,x0-0.015);x1=Math.min(1,x1+0.015);
+  if(x1-x0<0.3){x0=0;x1=1}
+
+  // 2. Chapters from the PDF's bookmarks
+  const chapterAt=new Map();
+  try{
+    const outline=await doc.getOutline()||[];
+    for(const item of outline){
+      let dest=item.dest;if(typeof dest==='string')dest=await doc.getDestination(dest);
+      if(!Array.isArray(dest)||!dest[0])continue;
+      const idx=typeof dest[0]==='number'?dest[0]:await doc.getPageIndex(dest[0]);
+      if(!chapterAt.has(idx+1))chapterAt.set(idx+1,(item.title||'').replace(/\s+/g,' ').trim().slice(0,50)||'Page '+(idx+1));
+    }
+  }catch(e){console.warn('no bookmarks',e)}
+
+  // 3. Every page: render the column at the screen width, trim blank space top and
+  //    bottom, cut into strips no taller than the reading area, at blank rows
+  let text='';const bmps=[];
+  for(let pn=1;pn<=N;pn++){
+    progress(pn,N);
+    const pg=await doc.getPage(pn);
+    const pw=pg.getViewport({scale:1}).width;
+    const scale=area.w/((x1-x0)*pw);
+    const r=await renderGrey(pg,scale);
+    const cx=Math.min(r.w-1,Math.round(x0*r.w)),W=Math.min(area.w,r.w-cx);
+    const col=new Float32Array(W*r.h);
+    for(let y=0;y<r.h;y++)for(let x=0;x<W;x++)col[y*W+x]=r.grey[y*r.w+cx+x];
+    const ink=pdfTo1bit(col,W,r.h,style);
+    const blank=y=>{for(let x=0;x<W;x++)if(ink[y*W+x])return false;return true};
+    let top=0,bot=r.h-1;while(top<r.h&&blank(top))top++;while(bot>top&&blank(bot))bot--;
+    if(chapterAt.has(pn))text+='\x01'+chapterAt.get(pn)+'\x01\n';
+    if(top>=r.h)continue;                                   // a blank page
+    top=Math.max(0,top-4);bot=Math.min(r.h-1,bot+4);
+    let y=top,part=0;
+    while(y<=bot){
+      let end=Math.min(bot+1,y+area.h);
+      if(end<=bot){                                         // look for a blank row to cut at
+        for(let c=end-1;c>y+area.h*0.55;c--)if(blank(c)){end=c+1;break}
+      }
+      const sh=end-y,strip=new Uint8Array(W*sh);
+      for(let yy=0;yy<sh;yy++)for(let x=0;x<W;x++)strip[yy*W+x]=ink[(y+yy)*W+x];
+      const name='p'+String(pn).padStart(4,'0')+'_'+(++part)+'.bmp';
+      bmps.push({name,bytes:bmp1(strip,W,sh)});
+      text+='\x02img '+name+' '+W+' '+sh+'\x02\n';
+      y=end;
+    }
+  }
+  return {text,bmps,pages:N};
 }
 
 // =====================================================================
@@ -421,7 +591,7 @@ async function extractFromEpub(zip){
       if(/^data:|^https?:/i.test(src))return tag;
       const path=resolve(fileDir,src.split('#')[0]);
       collected.push(path);
-      return '<p>'+PIC+path+PIC+'</p>';
+      return placeholder(path,tag);
     });
     for(const p of collected)if(!images.has(p)){
       const f=findFile(p);
@@ -443,62 +613,275 @@ async function extractFromEpub(zip){
 }
 
 // =====================================================================
-//  MOBI (PalmDOC-compressed or uncompressed)
+//  Kindle formats: HUFF/CDIC decompression, INDX tables, KF8 (AZW3)
 // =====================================================================
-function extractFromMobi(buf){
+
+// ---- HUFF/CDIC -------------------------------------------------------
+// The HUFF record holds a code table; each CDIC record holds a slice of the
+// phrase dictionary. Phrases may themselves be compressed (decoded on first use).
+function makeHuffCdic(bytes,offs,first,count){
+  const rec=i=>bytes.subarray(offs[i],offs[i+1]);
+  const u32=(b,o)=>((b[o]<<24)|(b[o+1]<<16)|(b[o+2]<<8)|b[o+3])>>>0;
+  const u16=(b,o)=>(b[o]<<8)|b[o+1];
+  const huff=rec(first);
+  if(String.fromCharCode(...huff.subarray(0,4))!=='HUFF')throw new Error('Bad HUFF record');
+  const off1=u32(huff,8),off2=u32(huff,12);
+  const d1=[];                                         // indexed by the top 8 bits of a code
+  for(let i=0;i<256;i++){
+    const v=u32(huff,off1+i*4);
+    const codelen=v&0x1f,term=(v&0x80)!==0;
+    const maxcode=((v>>>8)+1)*2**(32-codelen)-1;
+    d1.push([codelen,term,maxcode]);
+  }
+  const mincode=[0],maxcode=[0];
+  for(let len=1;len<=32;len++){
+    const lo=u32(huff,off2+(len-1)*8),hi=u32(huff,off2+(len-1)*8+4);
+    mincode.push(lo*2**(32-len));
+    maxcode.push((hi+1)*2**(32-len)-1);
+  }
+  const dict=[];                                       // [bytes, alreadyDecoded]
+  for(let k=1;k<count;k++){
+    const c=rec(first+k);
+    if(String.fromCharCode(...c.subarray(0,4))!=='CDIC')throw new Error('Bad CDIC record');
+    const hl=u32(c,4),phrases=u32(c,8),bits=u32(c,12);
+    const n=Math.min(2**bits,phrases-dict.length);
+    for(let i=0;i<n;i++){
+      const o=hl+u16(c,16+i*2);
+      const blen=u16(c,o);
+      dict.push([c.subarray(o+2,o+2+(blen&0x7fff)),(blen&0x8000)!==0]);
+    }
+  }
+  function peek32(b,bit){                              // 32 bits starting at any bit position
+    const i=bit>>3,s=bit&7;
+    const at=j=>j<b.length?b[j]:0;
+    const v=((at(i)<<24)|(at(i+1)<<16)|(at(i+2)<<8)|at(i+3))>>>0;
+    return s?((v<<s)|(at(i+4)>>>(8-s)))>>>0:v;
+  }
+  function unpack(data,depth){
+    if(depth>32)throw new Error('HUFF/CDIC nesting too deep');
+    const out=[];let total=0;
+    let bit=0;const bitsTotal=data.length*8;
+    while(true){
+      const code=peek32(data,bit);
+      let [codelen,term,mc]=d1[code>>>24];
+      if(!term){while(code<mincode[codelen])codelen++;mc=maxcode[codelen]}
+      bit+=codelen;
+      if(bit>bitsTotal)break;
+      const r=Math.floor((mc-code)/2**(32-codelen));
+      const entry=dict[r];
+      if(!entry)throw new Error('Bad HUFF/CDIC code');
+      if(!entry[1]){entry[0]=unpack(entry[0],depth+1);entry[1]=true}
+      out.push(entry[0]);total+=entry[0].length;
+    }
+    const all=new Uint8Array(total);let p=0;for(const q of out){all.set(q,p);p+=q.length}
+    return all;
+  }
+  return data=>unpack(data,0);
+}
+
+// ---- INDX tables (skeleton / fragment indexes) ------------------------
+function forwardInt(b,pos){                             // variable-width int, high bit ends it
+  let v=0;
+  for(let i=0;i<5;i++){const c=b[pos+i];v=v*128+(c&0x7f);if(c&0x80)return [v,i+1]}
+  return [v,5];
+}
+function readIndex(bytes,offs,first){
+  const rec=i=>bytes.subarray(offs[i],offs[i+1]);
+  const u32=(b,o)=>((b[o]<<24)|(b[o+1]<<16)|(b[o+2]<<8)|b[o+3])>>>0;
+  const u16=(b,o)=>(b[o]<<8)|b[o+1];
+  const head=rec(first);
+  if(String.fromCharCode(...head.subarray(0,4))!=='INDX')throw new Error('Bad INDX');
+  const hlen=u32(head,4),nrecs=u32(head,24);
+  // TAGX: which tags each entry can have, and how they're flagged in the control bytes
+  const t=hlen;
+  if(String.fromCharCode(...head.subarray(t,t+4))!=='TAGX')throw new Error('No TAGX');
+  const tlen=u32(head,t+4),cbc=u32(head,t+8);
+  const tagx=[];
+  for(let o=t+12;o<t+tlen;o+=4)tagx.push([head[o],head[o+1],head[o+2],head[o+3]]);
+  const entries=[];
+  for(let r=1;r<=nrecs;r++){
+    const d=rec(first+r);
+    const idxt=u32(d,20),count=u32(d,24);
+    for(let e=0;e<count;e++){
+      const start=u16(d,idxt+4+e*2);
+      const end=e+1<count?u16(d,idxt+4+(e+1)*2):idxt;
+      let p=start;
+      const nlen=d[p++];
+      const name=String.fromCharCode(...d.subarray(p,p+nlen));p+=nlen;
+      const ctrl=Array.from(d.subarray(p,p+cbc));p+=cbc;
+      // which tags are present, and how many values each has
+      const present=[];let ci=0;
+      for(const [tag,per,mask,endflag] of tagx){
+        if(endflag&1){ci++;continue}
+        const v=ctrl[ci]&mask;
+        if(!v)continue;
+        let count=null,bytesLen=null;
+        if(v===mask){
+          let bits=0;for(let m=mask;m;m>>=1)bits+=m&1;
+          if(bits>1){const [val,n]=forwardInt(d,p);p+=n;bytesLen=val}else count=1;
+        }else{
+          let m=mask,s=0;while(!(m&1)){m>>=1;s++}
+          count=v>>s;
+        }
+        present.push([tag,per,count,bytesLen]);
+      }
+      const tags={};
+      for(const [tag,per,count,bytesLen] of present){
+        const vals=[];
+        if(count!==null){for(let k=0;k<count*per;k++){const [val,n]=forwardInt(d,p);p+=n;vals.push(val)}}
+        else{let used=0;while(used<bytesLen){const [val,n]=forwardInt(d,p);p+=n;used+=n;vals.push(val)}}
+        tags[tag]=vals;
+      }
+      entries.push({name,tags});
+    }
+  }
+  return entries;
+}
+
+// ---- Kindle container basics -------------------------------------------
+function kindleHeader(buf){
   const bytes=new Uint8Array(buf),dv=new DataView(buf);
   const n=dv.getUint16(76);
   const offs=[];for(let i=0;i<n;i++)offs.push(dv.getUint32(78+i*8));offs.push(bytes.length);
-  const r0=offs[0];
-  const compression=dv.getUint16(r0),textRecords=dv.getUint16(r0+8);
-  if(compression===17480)throw new Error('This MOBI uses HUFF/CDIC compression, which isn\'t supported. Convert it to EPUB first (Calibre can).');
-  const mobi=r0+16;
-  const hasMobi=String.fromCharCode(...bytes.slice(mobi,mobi+4))==='MOBI';
-  const hlen=hasMobi?dv.getUint32(mobi+4):0;
-  const encoding=hasMobi?dv.getUint32(mobi+12):1252;
-  const firstImage=hasMobi?dv.getUint32(mobi+92):0xFFFFFFFF;
-  const extraFlags=(hasMobi&&hlen>=0xE4)?dv.getUint16(r0+0xF2):0;
+  const r0=offs[0],mobi=r0+16;
+  const h={bytes,dv,n,offs,r0,mobi,
+    compression:dv.getUint16(r0),textRecords:dv.getUint16(r0+8),encryption:dv.getUint16(r0+12),
+    hasMobi:String.fromCharCode(...bytes.slice(mobi,mobi+4))==='MOBI'};
+  h.hlen=h.hasMobi?dv.getUint32(mobi+4):0;
+  h.encoding=h.hasMobi?dv.getUint32(mobi+12):1252;
+  h.version=h.hasMobi?dv.getUint32(mobi+20):0;
+  h.firstImage=h.hasMobi?dv.getUint32(mobi+92):0xFFFFFFFF;
+  h.huffFirst=h.hasMobi?dv.getUint32(mobi+96):0;
+  h.huffCount=h.hasMobi?dv.getUint32(mobi+100):0;
+  h.extraFlags=(h.hasMobi&&h.hlen>=0xE4)?dv.getUint16(r0+0xF2):0;
+  h.fdst=(h.hasMobi&&h.hlen>=0xC4)?dv.getUint32(mobi+0xB0):0xFFFFFFFF;
+  h.fragIndex=(h.hasMobi&&h.hlen>=0xE8)?dv.getUint32(mobi+0xE8):0xFFFFFFFF;
+  h.skelIndex=(h.hasMobi&&h.hlen>=0xEC)?dv.getUint32(mobi+0xEC):0xFFFFFFFF;
+  h.decoder=new TextDecoder(h.encoding===65001?'utf-8':'windows-1252');
   let title='';
-  if(hasMobi){
+  if(h.hasMobi){
     const off=dv.getUint32(mobi+68),len=dv.getUint32(mobi+72);
-    if(off&&len&&r0+off+len<=bytes.length)title=new TextDecoder(encoding===65001?'utf-8':'windows-1252').decode(bytes.slice(r0+off,r0+off+len)).trim();
+    if(off&&len&&r0+off+len<=bytes.length)title=h.decoder.decode(bytes.slice(r0+off,r0+off+len)).trim();
   }
-
-  // text records, minus their trailing entries, decompressed to bytes, then decoded
+  h.title=title;
+  return h;
+}
+function checkReadable(h){
+  if(h.encryption)throw new Error('This book has DRM (copy protection), so it can\'t be converted. Only DRM-free books work.');
+}
+// All the text records, trailing entries removed, decompressed, as bytes
+function kindleText(h){
+  let unpack;
+  if(h.compression===17480)unpack=makeHuffCdic(h.bytes,h.offs,h.huffFirst,h.huffCount);
+  else if(h.compression===2)unpack=palmDocDecompress;
+  else unpack=x=>x;
   const parts=[];let total=0;
-  for(let i=1;i<=textRecords&&i<n;i++){
-    let rec=bytes.subarray(offs[i],offs[i+1]);
-    rec=rec.subarray(0,rec.length-trailingSize(rec,extraFlags));
-    const out=compression===2?palmDocDecompress(rec):rec;
-    parts.push(out);total+=out.length;
+  for(let i=1;i<=h.textRecords&&i<h.n;i++){
+    let rec=h.bytes.subarray(h.offs[i],h.offs[i+1]);
+    rec=rec.subarray(0,rec.length-trailingSize(rec,h.extraFlags));
+    const out=unpack(rec);parts.push(out);total+=out.length;
   }
   const all=new Uint8Array(total);let p=0;for(const q of parts){all.set(q,p);p+=q.length}
-  let html=new TextDecoder(encoding===65001?'utf-8':'windows-1252').decode(all);
+  return all;
+}
 
-  // pictures: <img recindex="00012"> is image record firstImage + 12 - 1
+// ---- KF8 (AZW3): rebuild each XHTML file from its skeleton + fragments ------
+function kf8Parts(h){
+  const raw=kindleText(h);
+  // the book's text is flow 0; the other flows are style sheets
+  let textEnd=raw.length;
+  if(h.fdst!==0xFFFFFFFF&&h.fdst<h.n){
+    const f=h.bytes.subarray(h.offs[h.fdst],h.offs[h.fdst+1]);
+    if(String.fromCharCode(...f.subarray(0,4))==='FDST')
+      textEnd=((f[16]<<24)|(f[17]<<16)|(f[18]<<8)|f[19])>>>0;
+  }
+  const text=raw.subarray(0,textEnd);
+  if(h.skelIndex===0xFFFFFFFF||h.fragIndex===0xFFFFFFFF)return [h.decoder.decode(text)];
+  const skel=readIndex(h.bytes,h.offs,h.skelIndex);
+  const frag=readIndex(h.bytes,h.offs,h.fragIndex);
+  const parts=[];let fi=0;
+  for(const s of skel){
+    const fragCount=s.tags[1][0],skelPos=s.tags[6][0],skelLen=s.tags[6][1];
+    let doc=text.subarray(skelPos,skelPos+skelLen);
+    let base=skelPos+skelLen;
+    for(let k=0;k<fragCount&&fi<frag.length;k++,fi++){
+      const insertAt=parseInt(frag[fi].name,10)-skelPos;
+      const len=frag[fi].tags[6][1];
+      const piece=text.subarray(base,base+len);
+      const joined=new Uint8Array(doc.length+piece.length);
+      joined.set(doc.subarray(0,insertAt),0);joined.set(piece,insertAt);joined.set(doc.subarray(insertAt),insertAt+piece.length);
+      doc=joined;base+=len;
+    }
+    parts.push(h.decoder.decode(doc));
+  }
+  return parts;
+}
+
+// "kindle:embed:000C" is image number 12 (base 32, digits 0-9 A-V), 1-based
+function kindleEmbedIndex(s){
+  const m=/kindle:embed:([0-9A-Va-v]+)/.exec(s);
+  return m?parseInt(m[1],32):0;
+}
+
+
+// ---- MOBI (Kindle format 6) and AZW3 (Kindle format 8) books ------------------
+function extractFromMobi(buf){
+  const h=kindleHeader(buf);
+  checkReadable(h);
+  let html=h.decoder.decode(kindleText(h));
   const images=new Map();
-  html=html.replace(/<img\b[^>]*\brecindex=["']?(\d+)["']?[^>]*>/gi,(tag,idx)=>{
-    const rec=firstImage+parseInt(idx,10)-1;
-    if(firstImage===0xFFFFFFFF||rec>=n)return '';
-    const key='rec'+rec;
-    if(!images.has(key)){const b=bytes.slice(offs[rec],offs[rec+1]);const t=imageType(b);if(t)images.set(key,new Blob([b],{type:t}))}
-    return '<p>'+PIC+key+PIC+'</p>';
-  });
-
-  // chapters: sections between page breaks. A section's first line names it
-  // when it's short ("CHAPTER One"); picture-only sections get no marker.
-  let out=(title||'Unknown')+'\n\n';let num=0;
+  // pictures: <img recindex="00012"> is image record firstImage + 12 - 1
+  html=html.replace(/<img\b[^>]*\brecindex=["']?(\d+)["']?[^>]*>/gi,(tag,idx)=>addKindleImage(h,images,parseInt(idx,10),tag));
+  // chapters: sections between page breaks, named by their first line when it's short ("CHAPTER One")
+  let out=(h.title||'Unknown')+'\n\n';let num=0;
   for(const sec of html.split(/<mbp:pagebreak[^>]*>/i)){
-    const text=htmlToRaw(sec);
-    const lines=text.split('\n').map(l=>l.trim()).filter(l=>l&&!l.startsWith(PIC));
-    if(!lines.length){if(text.trim())out+=text+'\n\n';continue}
-    num++;
-    let label=lines[0];
-    if(label.length<=10&&lines[1]&&lines[1].length<=30&&!/[.!?]$/.test(label))label+=' '+lines[1];   // "CHAPTER" + "One"
-    if(label.length>40)label='Section '+num;
-    out+='\x01'+label.replace(/\s+/g,' ')+'\x01\n'+text+'\n\n';
+    const r=chapterText(sec,++num);
+    if(r.label===null){num--;if(r.text)out+=r.text+'\n\n';continue}
+    out+='\x01'+r.label+'\x01\n'+r.text+'\n\n';
   }
   return {raw:out.trim(),images};
+}
+
+function extractFromAzw3(buf){
+  const h=kindleHeader(buf);
+  checkReadable(h);
+  const images=new Map();
+  let out=(h.title||'Unknown')+'\n\n';let num=0;
+  for(let part of kf8Parts(h)){
+    // pictures: <img src="kindle:embed:000C?mime=image/jpeg">, and SVG <image xlink:href="...">
+    part=part.replace(/<(img|image)\b[^>]*?(?:\bsrc|xlink:href|\bhref)\s*=\s*["'](kindle:embed:[^"']+)["'][^>]*>/gi,
+      (tag,t,src)=>addKindleImage(h,images,kindleEmbedIndex(src),tag));
+    const r=chapterText(part,++num);
+    if(r.label===null){num--;if(r.text)out+=r.text+'\n\n';continue}
+    out+='\x01'+r.label+'\x01\n'+r.text+'\n\n';
+  }
+  return {raw:out.trim(),images};
+}
+
+// Image number k (1-based) as a placeholder; the picture itself is kept for later
+function addKindleImage(h,images,k,tag=''){
+  const rec=h.firstImage+k-1;
+  if(h.firstImage===0xFFFFFFFF||k<1||rec>=h.n)return '';
+  const key='rec'+rec;
+  if(!images.has(key)){const b=h.bytes.slice(h.offs[rec],h.offs[rec+1]);const t=imageType(b);if(t)images.set(key,new Blob([b],{type:t}))}
+  return placeholder(key,tag);
+}
+
+// A section's text and chapter label: the first heading, or its first line when
+// that's short ("CHAPTER" + "One" joined). label is null for picture-only sections.
+function chapterText(html,num){
+  const text=htmlToRaw(html);
+  const lines=text.split('\n').map(l=>l.trim()).filter(l=>l&&!l.startsWith(PIC));
+  if(!lines.length)return {label:null,text:text.trim()};
+  const head=/<h[1-3][^>]*>([\s\S]*?)<\/h[1-3]>/i.exec(html);
+  const picsToAlt=t=>t.replace(new RegExp(PIC+'([^'+PIC+']*)'+PIC,'g'),(_,k)=>' '+(k.split(ALT)[1]||'')+' ');
+  let label=head?picsToAlt(htmlToRaw(head[1])).replace(/\s+/g,' ').trim():'';
+  if(!label){
+    label=lines[0];
+    if(label.length<=10&&lines[1]&&lines[1].length<=30&&!/[.!?]$/.test(label))label+=' '+lines[1];
+  }
+  if(!label||label.length>50)label='Section '+num;
+  return {label:label.replace(/\s+/g,' '),text};
 }
 
 // Bytes at the end of a MOBI text record that aren't text (see the MOBI format's "extra data flags")
@@ -545,8 +928,8 @@ function htmlToRaw(html){
     .replace(/&ldquo;/g,'"').replace(/&rdquo;/g,'"')
     .replace(/&lsquo;/g,"'").replace(/&rsquo;/g,"'")
     .replace(/&hellip;/g,'...')
-    .replace(/&#x([0-9a-fA-F]+);/g,(_,h)=>String.fromCharCode(parseInt(h,16)))
-    .replace(/&#(\d+);/g,(_,n)=>String.fromCharCode(parseInt(n,10)));
+    .replace(/&#x([0-9a-fA-F]+);/g,(_,h)=>{try{return String.fromCodePoint(parseInt(h,16))}catch(e){return ''}})
+    .replace(/&#(\d+);/g,(_,n)=>{try{return String.fromCodePoint(parseInt(n,10))}catch(e){return ''}});
   html=html.replace(/\r\n/g,'\n').replace(/\r/g,'\n').replace(/\n{3,}/g,'\n\n');
   html=html.split('\n').map(l=>l.trim()).filter((l,i,a)=>l||(a[i-1]!=='')).join('\n');
   return html.trim();
@@ -572,6 +955,11 @@ function transliterate(t){
     .replace(/\u00A9/g,'(c)').replace(/\u00AE/g,'(R)').replace(/\u2122/g,'(TM)')
     .replace(/[\u00AB\u00BB]/g,'"').replace(/[\u2039\u203A]/g,"'").replace(/[\u2022\u00B7]/g,'*')
     .replace(/\u00BD/g,'1/2').replace(/\u00BC/g,'1/4').replace(/\u00BE/g,'3/4')
+    .replace(/[\u2669\u266A\u266B\u266C]/g,'~').replace(/\u2113/g,'l')
+    .replace(/[\u2000-\u200A]/g,' ').replace(/\u00B0/g,' deg')
+    .replace(/[\u0391-\u03C9]/g,c=>({'\u03B1':'alpha','\u03B2':'beta','\u03B3':'gamma','\u03B4':'delta','\u03B5':'epsilon','\u03B8':'theta',
+      '\u03BB':'lambda','\u03BC':'mu','\u03C0':'pi','\u03C1':'rho','\u03C3':'sigma','\u03C4':'tau','\u03C6':'phi','\u03C9':'omega',
+      '\u0394':'Delta','\u03A3':'Sigma','\u03A9':'Omega','\u03A6':'Phi','\u03A0':'Pi'})[c]||'?')
     .replace(/[\uFFFD\u200B\uFEFF\u00AD]/g,'')
     .replace(/[\u0400-\u04FF]/g,c=>c in CYRILLIC?CYRILLIC[c]:c)
     .replace(/[\u4E00-\u9FFF\u3400-\u4DBF]+/g,'[Chinese]')

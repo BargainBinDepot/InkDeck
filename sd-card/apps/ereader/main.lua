@@ -164,8 +164,20 @@ local function layout()
   return cols, rows, lh, y0
 end
 
+-- PDF books (converted as page images): the PDF page a screen shows, read from
+-- the first picture at or after the screen's start ("\2img p0012_1.bmp ...")
+local function pdfPageAt(i)
+  if not (book and book.viewText and book.pages[i]) then return nil end
+  return tonumber(book.viewText:match("\2img p(%d+)_", book.pages[i] + 1))
+end
+
 local function updateTitle()
-  if book then sys.title(book.page .. "/" .. #book.pages .. " " .. book.title) end
+  if not book then return end
+  if book.view then
+    sys.title((pdfPageAt(book.page) or "?") .. "/" .. book.pdfPages .. " " .. book.title)
+  else
+    sys.title(book.page .. "/" .. #book.pages .. " " .. book.title)
+  end
 end
 
 local function loadLines()
@@ -196,7 +208,9 @@ end
 
 local function finishOpen(p, pages, chapters)
   book = { name = p.name, title = titleOf(p.name), pages = pages, chapters = chapters,
-           cols = p.cols, rows = p.rows, lh = p.lh, y0 = p.y0 }
+           cols = p.cols, rows = p.rows, lh = p.lh, y0 = p.y0,
+           view = p.view, pdfPages = p.pdfPages }
+  if p.view then book.viewText = file.read(BOOKS .. "/" .. p.name) end   -- to map screens to PDF pages
   local saved = progress[p.name]
   book.page = saved and pageForOffset(pages, saved.offset) or 1
   loadLines()
@@ -211,6 +225,17 @@ end
 local function openBook(name)
   local cols, rows, lh, y0 = layout()
   local p = { name = name, cols = cols, rows = rows, lh = lh, y0 = y0, size = file.size(BOOKS .. "/" .. name) }
+  -- A PDF converted as page images: lay it out in pixels (1-pixel "lines"), so
+  -- each strip fills the screen exactly, whatever the font setting
+  local view = file.read(BOOKS .. "/" .. name:gsub("%.[tT][xX][tT]$", "") .. ".view")
+  if view then
+    p.view = true
+    p.pdfPages = tonumber(view:match("pdf (%d+)")) or 0
+    p.lh = 1
+    p.rows = math.floor(screen.H - y0 - screen.scale)
+    p.cols = 1000
+  end
+  cols, rows, lh = p.cols, p.rows, p.lh
   local pages, chapters = loadCache(name, cols, rows, lh, p.size)
   if pages then finishOpen(p, pages, chapters); return end
   -- First open (or new font size): show a message, then index in tick()
@@ -400,7 +425,15 @@ function key(k, ch)
     elseif k == keys.ENTER then
       local n = tonumber(gotoText:match("^(%d+)"))
       if n then
-        if gotoText:find("%%") then n = 1 + math.floor((#book.pages - 1) * math.min(n, 100) / 100) end
+        if gotoText:find("%%") then n = 1 + math.floor((#book.pages - 1) * math.min(n, 100) / 100)
+        elseif book.view then                               -- a PDF page number: first screen showing it
+          local lo, hi = 1, #book.pages
+          while lo < hi do
+            local mid = (lo + hi) // 2
+            if (pdfPageAt(mid) or 0) < n then lo = mid + 1 else hi = mid end
+          end
+          n = lo
+        end
         gotoPage(n)
         savePosition()
       end
@@ -526,7 +559,7 @@ local function drawChapters()
   local y0 = header("Chapters")
   local items = {}
   for _, c in ipairs(book.chapters) do
-    local pg = " p" .. c.page
+    local pg = " p" .. (book.view and (pdfPageAt(c.page) or c.page) or c.page)
     items[#items + 1] = fit(c.title, screen.cols - #pg - 2) .. string.rep(" ", math.max(1, screen.cols - 2 - #fit(c.title, screen.cols - #pg - 2) - #pg)) .. pg
   end
   chapTop = drawList(items, chapSel, chapTop, y0, listRowsFrom(y0))
