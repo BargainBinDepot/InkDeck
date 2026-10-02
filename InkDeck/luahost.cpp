@@ -10,6 +10,7 @@
 #include "icons.h"
 #include <map>
 #include "clock.h"
+#include "battery.h"
 #include <time.h>
 #include <algorithm>
 #include <Fonts/FreeMono9pt7b.h>
@@ -381,10 +382,19 @@ static int l_random(lua_State* Ls) {
   return 1;
 }
 
+// sys.battery() -> bars (0..4, 0 = empty), volts, charging; nil if there's no battery meter
+static int l_battery(lua_State* Ls) {
+  if (!Battery::present()) { lua_pushnil(Ls); return 1; }
+  lua_pushinteger(Ls, Battery::level());
+  lua_pushnumber(Ls, Battery::volts());
+  lua_pushboolean(Ls, Battery::charging());
+  return 3;
+}
+
 static const luaL_Reg sysLib[] = {
   { "exit", l_exit }, { "millis", l_millis }, { "title", l_title }, { "mem", l_mem },
   { "clipboard", l_clipboard }, { "time", l_time }, { "date", l_date }, { "random", l_random },
-  { "stayawake", l_stayawake },
+  { "stayawake", l_stayawake }, { "battery", l_battery },
   { nullptr, nullptr }
 };
 

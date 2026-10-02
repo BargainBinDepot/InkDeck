@@ -12,7 +12,7 @@
 //    43, 44        UART0 TX/RX
 // =====================================================================
 
-#define FW_VERSION "v0.21"
+#define FW_VERSION "v0.22"
 #define BRAND_NAME "InkDeck"
 
 // ---------------- Which display is plugged in ----------------
@@ -125,8 +125,18 @@
 #define SLEEP_AFTER_SEC    60        // default; change in System > Settings > Sleep (0 = never)
 #define SLEEP_POLL_MS      150       // how often the keyboard is checked while asleep
 
+// ---------------- Battery meter (see battery.h for the wiring) ----------------
+#define BATT_MONITOR     0       // 1 once the divider is fitted: 4-bar meter in the title bar
+#define PIN_BATT_ADC     4       // ADC1 channel (safe with WiFi on): middle of the battery divider
+#define PIN_USB_SENSE    -1      // GPIO on a 100k/100k divider from the charger's USB 5V, or -1 (no charging icon)
+#define BATT_DIVIDER     2.0f    // (top + bottom) / bottom: 100k + 100k = 2.0
+#define BATT_CAL         1.00f   // fine-tune: multimeter volts / volts shown in System > About
+#define BATT_SHUTDOWN_V  3.45f   // "Battery empty" + deep sleep below this. Set it to where your board's
+                                 // 3.3V regulator gives up: ~3.45 for an LDO like the ME6211, ~4.2 for an AMS1117
+#define BATT_READ_SEC    30      // how often to measure
+#define BATT_RECHECK_MIN 10      // while shut down: wake this often to see if it's been charged
+
 // ---------------- Reserved for later ----------------
-#define PIN_BATT_ADC    4   // ADC1 channel (safe with WiFi on)
 #define PIN_WAKE_BTN    5   // RTC-capable GPIO for deep-sleep wake
 
 // ---------------- Refresh policy ----------------

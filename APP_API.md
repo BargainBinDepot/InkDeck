@@ -1,4 +1,4 @@
-# InkDeck app API (v0.21)
+# InkDeck app API (v0.22)
 
 An app is a folder in `/apps` on the SD card:
 
@@ -176,6 +176,7 @@ Pick `cols`/`rows` from the font you draw with, e.g. `local cw, lh = screen.font
 | `sys.title([str])` | Change the status-bar title (empty = the app's name) |
 | `sys.mem()` | Bytes of memory the app is using |
 | `sys.stayawake(on)` | `true` keeps the device from sleeping while your app runs (e.g. a timer counting down); `false` allows it again. Ends automatically when the app closes. Normally InkDeck sleeps after a minute without key presses (adjustable in System > Settings), keeping whatever is on screen. |
+| `sys.battery()` | Battery level as `bars, volts, charging`: bars is 0..4 (4 = full, 0 = empty, about 10% left), volts the smoothed battery voltage, charging true while USB power is on (if the charger is wired for it). Returns `nil` when the device has no battery meter. |
 | `sys.clipboard([text])` | The shared clipboard: returns its text, and sets it first if you pass text. Shared by all apps until power-off. |
 | `sys.random(n)` / `sys.random(a, b)` | A random whole number from 1..n or a..b, from the ESP32's hardware random number generator, with every result equally likely. Use this rather than `math.random` for anything that should be truly random (dice, cards). |
 | `sys.time()` | Seconds since 1970 (UTC), or `nil` if the clock isn't set yet |

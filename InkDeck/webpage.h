@@ -348,7 +348,7 @@ async function editorTab(t){
 async function systemTab(){
  const i=await j('/api/info');
  $('#main').innerHTML=`<h2>System</h2><p class=mute>Firmware ${esc(i.firmware)}</p>
- <table>${Object.entries({Chip:i.chip,'Free RAM':i.heap,PSRAM:i.psram,Display:i.display,'SD card':i.sd,Network:i.network,Address:i.ip,'Lua apps':i.apps}).map(([k,v])=>`<tr><td>${k}</td><td>${esc(v)}</td></tr>`).join('')}</table>
+ <table>${Object.entries({Chip:i.chip,'Free RAM':i.heap,PSRAM:i.psram,Display:i.display,'SD card':i.sd,Battery:i.battery,Network:i.network,Address:i.ip,'Lua apps':i.apps}).map(([k,v])=>`<tr><td>${k}</td><td>${esc(v)}</td></tr>`).join('')}</table>
  <h2 style="margin-top:22px">WiFi</h2><p class=mute>Save your home WiFi so the device joins it next time you open the Uploader. Leave the name empty to always use the device's own hotspot.</p>
  <div class=box><div class=row><input type=text id=ss placeholder="WiFi name" value="${esc(i.saved_ssid)}"><input type=password id=pw placeholder="Password"><button class=b id=sv>Save</button></div><div id=st></div></div>`;
  $('#sv').onclick=async()=>{try{await j('/api/wifi',{method:'POST',body:new URLSearchParams({ssid:$('#ss').value,password:$('#pw').value})});

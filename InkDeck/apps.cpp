@@ -9,6 +9,7 @@
 #include "clock.h"
 #include "power.h"
 #include "ota.h"
+#include "battery.h"
 #include <algorithm>
 #include <vector>
 
@@ -94,6 +95,8 @@ static int  current = -1;                 // -1 = launcher
 static bool dirty = true;
 static Refresh pending = Refresh::Full;
 static uint32_t lastKeyMs = 0;            // for REFRESH_SETTLE_MS
+static String noticeText;                 // short notice over the bottom of the screen (e.g. battery low)
+static uint32_t noticeUntil = 0;
 static String customTitle;
 
 
@@ -112,6 +115,28 @@ static void drawStatusBar(const char* title, bool inApp) {
   const int clockX = SCREEN_W - 5 * T - cw;
   g.fillRect(clockX - 2 * T, 0, cw + 4 * T, h, PAPER);
   screen.text(clockX, 2 * T, clk.c_str(), T);
+  int rightLimit = clockX - 2 * T;                             // the title stays left of this
+
+  // Battery: 4 bars in a battery outline, left of the clock; a "+" while charging
+  if (Battery::present()) {
+    const int bh = CH - T, seg = 2 * T, gap = T;               // body height, bar width, spacing
+    const int bw = 4 * seg + 5 * gap + 2 * T;                  // body width
+    const int bx = clockX - 4 * T - bw - 2 * T, by = 2 * T;
+    g.fillRect(bx - 2 * T, 0, bw + 3 * T + 2 * T, h, PAPER);
+    for (int i = 0; i < T; i++) g.drawRect(bx + i, by + i, bw - 2 * i, bh - 2 * i, INK);
+    g.fillRect(bx + bw, by + bh / 4, T + (T > 1 ? 0 : 1), bh / 2, INK);   // the nub
+    for (int i = 0; i < Battery::level(); i++)
+      g.fillRect(bx + T + gap + i * (seg + gap), by + T + gap, seg, bh - 2 * T - 2 * gap, INK);
+    if (Battery::charging()) {                                 // "+" just left of the battery
+      const int cx = bx - 4 * T, cy = by + bh / 2;
+      g.fillRect(cx - 3 * T, 0, 6 * T, h, PAPER);
+      g.fillRect(cx - 2 * T, cy - T / 2, 4 * T + 1, T, INK);
+      g.fillRect(cx - T / 2, cy - 2 * T, T, 4 * T + 1, INK);
+      rightLimit = cx - 4 * T;
+    } else {
+      rightLimit = bx - 3 * T;
+    }
+  }
 
   // Close box on the left while an app is open
   int leftLimit = T;
@@ -124,7 +149,7 @@ static void drawStatusBar(const char* title, bool inApp) {
   }
 
   // Title, centred and bold (drawn twice, one pixel apart), trimmed to fit between the boxes
-  const int half = std::min(SCREEN_W / 2 - leftLimit, clockX - 2 * T - SCREEN_W / 2) - 4 * T;
+  const int half = std::min(SCREEN_W / 2 - leftLimit, rightLimit - SCREEN_W / 2) - 4 * T;
   const int maxChars = std::max(3, 2 * half / CW);
   String t = title;
   if ((int)t.length() > maxChars) t = t.substring(0, maxChars - 1) + "~";
@@ -844,6 +869,17 @@ void tick() {
 #endif
   static bool lastKb = false;
   if (kb.present() != lastKb) { lastKb = kb.present(); requestRedraw(Refresh::Partial); }
+  static int lastBatt = -2;                       // bars + charging, so the icon stays current
+  const int batt = Battery::level() * 2 + (Battery::charging() ? 1 : 0);
+  if (batt != lastBatt) {
+    if (Battery::level() == 0 && !Battery::charging() && lastBatt > 1) {   // just went empty
+      noticeText = "Battery low - charge InkDeck soon";
+      noticeUntil = millis() + 6000;
+    }
+    lastBatt = batt;
+    requestRedraw(Refresh::Partial);
+  }
+  if (noticeUntil && (int32_t)(millis() - noticeUntil) >= 0) { noticeUntil = 0; requestRedraw(Refresh::Partial); }
 
   if (!dirty) return;
   if (millis() - lastKeyMs < REFRESH_SETTLE_MS) return;   // slow panels: wait for a pause
@@ -865,6 +901,13 @@ void tick() {
   }
   else if (apps[current].lua >= 0) LuaHost::draw();
   else                             apps[current].onDraw();
+  if (noticeUntil) {                                         // a boxed one-line notice at the bottom
+    const int w = screen.textWidth(noticeText.c_str(), T) + 8 * T, h = LINE_H + 4 * T;
+    const int x = (SCREEN_W - w) / 2, y = SCREEN_H - h - 4 * T;
+    screen.g().fillRect(x, y, w, h, PAPER);
+    for (int i = 0; i < T; i++) screen.g().drawRect(x + i, y + i, w - 2 * i, h - 2 * i, INK);
+    screen.text(x + 4 * T, y + 2 * T + T, noticeText.c_str(), T);
+  }
   screen.refresh(pending);
 }
 
@@ -1356,9 +1399,9 @@ static void sysDrawAbout() {
   snprintf(l, sizeof(l), "Heap free: %lu KB  PSRAM: %lu KB",
            (unsigned long)(ESP.getFreeHeap() / 1024), (unsigned long)(ESP.getPsramSize() / 1024));   row(l);
   snprintf(l, sizeof(l), "Display: %s %dx%d", screen.backendName(), SCREEN_W, SCREEN_H);         row(l);
-  snprintf(l, sizeof(l), "Keyboard: %s", kb.present() ? "CardKB @0x5F" : "not found");              row(l);
+  snprintf(l, sizeof(l), "Keyboard: %s  Lua apps: %d", kb.present() ? "CardKB" : "not found", AppMgr::luaAppCount()); row(l);
   snprintf(l, sizeof(l), "SD: %s", Storage::cardInfo().c_str());                                   row(l);
-  snprintf(l, sizeof(l), "Lua apps: %d installed", AppMgr::luaAppCount());                           row(l);
+  snprintf(l, sizeof(l), "Battery: %s", Battery::label().c_str());                                   row(l);
   snprintf(l, sizeof(l), "Refresh: %lu partial / %lu full",
            (unsigned long)screen.partialCount(), (unsigned long)screen.fullCount());               row(l);
   snprintf(l, sizeof(l), "Time: %s", Clock::dateLine().c_str());                                   row(l);

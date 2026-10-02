@@ -7,6 +7,7 @@
 #include "webpage.h"
 #include "clock.h"
 #include "ota.h"
+#include "battery.h"
 #include <WiFi.h>
 #include <WebServer.h>
 #include <ESPmDNS.h>
@@ -358,6 +359,7 @@ static void hInfo() {
   j += ",\"psram\":" + jstr(psram);
   j += ",\"display\":" + jstr(String(screen.backendName()) + " " + String(SCREEN_W) + "x" + String(SCREEN_H));
   j += ",\"sd\":" + jstr(Storage::cardInfo());
+  j += ",\"battery\":" + jstr(Battery::label());
   j += ",\"network\":" + jstr(net);
   j += ",\"ip\":" + jstr(address() + "  (http://" MDNS_NAME ".local)");
   j += ",\"apps\":" + jstr(String((unsigned)LuaHost::readManifests().size()));

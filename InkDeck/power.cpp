@@ -6,6 +6,7 @@
 #include "apps.h"
 #include "webui.h"
 #include "clock.h"
+#include "battery.h"
 #include "esp_sleep.h"
 #if ARDUINO_USB_MODE
 #include "driver/usb_serial_jtag.h"
@@ -64,11 +65,17 @@ static void sleepNow() {
   screen.sleep();                              // panel off (e-paper keeps its image), backlight off
   Serial.flush();
 
-  // Light sleep in short naps, checking the keyboard between them
+  // Light sleep in short naps, checking the keyboard between them,
+  // and the battery about once a minute (an empty one ends the sleep to shut down)
+  uint32_t naps = 0;
   while (true) {
     esp_sleep_enable_timer_wakeup(SLEEP_POLL_MS * 1000ULL);
     esp_light_sleep_start();
     if (kb.poll()) break;                      // the waking key is swallowed
+    if (++naps % (60000 / SLEEP_POLL_MS) == 0) {
+      Battery::measureNow();
+      if (Battery::critical()) break;          // Battery::loop() shows "Battery empty"
+    }
   }
 
   asleep = false;
