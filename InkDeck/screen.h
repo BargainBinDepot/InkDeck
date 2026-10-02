@@ -13,7 +13,14 @@
 
 // Partial = fast update. Full = the screen changed a lot (app switch, new mode):
 // cleaned with a full refresh only if fullOnSwitch() partials have built up
-// since the last one, otherwise partial. Clean = always a full refresh.
+// since the last one, otherwise partial. Clean = always a full refresh, and the
+// deep one where the panel has it.
+//
+// The 3.7" (UC8253) has three refresh levels, picked by the temperature its
+// waveform is looked up for:
+//   partial  ~0.35 s  no flash, ghosting builds up      (forced 110 C, GxEPD2 partial)
+//   fast     ~1 s     one flash, clears most ghosting   (forced 90 C, GxEPD2 full)
+//   deep     ~3 s     several flashes, cleanest         (real temperature, stock waveform)
 // Ordered by strength: a pending redraw keeps the strongest one requested.
 enum class Refresh { Partial, Full, Clean };
 
@@ -43,6 +50,9 @@ public:
   uint16_t fullOnSwitch() const { return _fullOnSwitch; } // app switch etc. (Refresh::Full) cleans after N; 0 = always
   bool setFullEvery(uint16_t n)    { _fullEvery = n;    return saveSettings(); }
   bool setFullOnSwitch(uint16_t n) { _fullOnSwitch = n; return saveSettings(); }
+  bool hasDeepClean() const;                              // panel has a slower, cleaner full refresh
+  bool deepFull() const         { return _deepFull; }     // automatic full refreshes use it too
+  bool setDeepFull(bool on)     { _deepFull = on; return saveSettings(); }
   uint32_t partialCount() const { return _partials; }
   uint32_t fullCount() const { return _fulls; }
   uint32_t lastRefreshMs() const { return _lastMs; }
@@ -69,11 +79,12 @@ private:
   bool _forceFull = false;
   uint16_t _fullEvery = FULL_REFRESH_EVERY;
   uint16_t _fullOnSwitch = FULL_REFRESH_SOFT;
+  bool _deepFull = false;
 
   bool saveSettings();
 
   void backendBegin();
-  void backendPush(bool full);
+  void backendPush(bool full, bool deep);
 };
 
 extern Screen screen;

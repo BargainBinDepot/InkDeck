@@ -1,4 +1,4 @@
-# InkDeck app API (v0.19)
+# InkDeck app API (v0.20)
 
 An app is a folder in `/apps` on the SD card:
 

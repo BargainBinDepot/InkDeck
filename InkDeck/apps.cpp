@@ -1185,8 +1185,17 @@ static int sysSel = 0, sysTop = 0;
 static String sysMsg;
 
 static const char* SYS_MENU[]     = { "About this device", "Settings" };
+// Settings rows; the list shown depends on the panel and firmware (see settingsRows)
+enum SetRow { SET_CLOCK, SET_SLEEP, SET_EVERY, SET_SWITCH, SET_STYLE, SET_CLEAN, SET_ROLLBACK };
 static const char* SYS_SETTINGS[] = { "Clock", "Sleep after", "Full refresh after", "Full on app switch",
-                                      "Clean screen refresh", "Previous firmware" };
+                                      "Full refresh type", "Deep clean screen", "Previous firmware" };
+static std::vector<int> settingsRows() {
+  std::vector<int> r = { SET_CLOCK, SET_SLEEP, SET_EVERY, SET_SWITCH };
+  if (screen.hasDeepClean()) r.push_back(SET_STYLE);
+  r.push_back(SET_CLEAN);
+  if (Ota::canRollBack()) r.push_back(SET_ROLLBACK);
+  return r;
+}
 static bool sysRollAsk = false, sysRollYes = false;
 static const uint32_t SLEEP_CHOICES[] = { 60, 120, 300, 600, 0 };      // seconds; 0 = never
 // Partial refreshes before a full one (Screen::REFRESH_NEVER = never)
@@ -1230,7 +1239,7 @@ static void sysEnter() { sysGo(SysScreen::Menu); }
 static int sysCount() {
   switch (sysScr) {
     case SysScreen::Menu:     return 2;
-    case SysScreen::Settings: return Ota::canRollBack() ? 6 : 5;
+    case SysScreen::Settings: return settingsRows().size();
     case SysScreen::Clock:    return CLOCK_ITEMS;
     case SysScreen::Zones:    return Clock::zoneCount();
     default:                  return 0;
@@ -1254,22 +1263,27 @@ static void sysActivate() {
     case SysScreen::Menu:
       sysGo(sysSel == 0 ? SysScreen::About : SysScreen::Settings);
       break;
-    case SysScreen::Settings:
-      if (sysSel == 0) sysGo(SysScreen::Clock);
-      else if (sysSel == 1) {                                  // cycle 1, 2, 5, 10 minutes, never
-        const int n = sizeof(SLEEP_CHOICES) / sizeof(SLEEP_CHOICES[0]);
-        int i = 0;
-        while (i < n && SLEEP_CHOICES[i] != Power::timeoutSec()) i++;
-        Power::setTimeoutSec(SLEEP_CHOICES[(i + 1) % n]);
-        AppMgr::requestRedraw(Refresh::Partial);
+    case SysScreen::Settings: {
+      const std::vector<int> rows = settingsRows();
+      if (sysSel < 0 || sysSel >= (int)rows.size()) break;
+      switch (rows[sysSel]) {
+        case SET_CLOCK: sysGo(SysScreen::Clock); return;
+        case SET_SLEEP: {                                      // cycle 1, 2, 5, 10 minutes, never
+          const int n = sizeof(SLEEP_CHOICES) / sizeof(SLEEP_CHOICES[0]);
+          int i = 0;
+          while (i < n && SLEEP_CHOICES[i] != Power::timeoutSec()) i++;
+          Power::setTimeoutSec(SLEEP_CHOICES[(i + 1) % n]);
+          break;
+        }
+        case SET_EVERY:  screen.setFullEvery(nextChoice(FULL_EVERY_CHOICES, screen.fullEvery())); break;
+        case SET_SWITCH: screen.setFullOnSwitch(nextChoice(FULL_SWITCH_CHOICES, screen.fullOnSwitch())); break;
+        case SET_STYLE:  screen.setDeepFull(!screen.deepFull()); break;
+        case SET_CLEAN:  sysMsg = "Screen cleaned"; AppMgr::requestRedraw(Refresh::Clean); return;
+        case SET_ROLLBACK: sysRollAsk = true; sysRollYes = false; break;
       }
-      else if (sysSel == 2) { screen.setFullEvery(nextChoice(FULL_EVERY_CHOICES, screen.fullEvery()));
-                              AppMgr::requestRedraw(Refresh::Partial); }
-      else if (sysSel == 3) { screen.setFullOnSwitch(nextChoice(FULL_SWITCH_CHOICES, screen.fullOnSwitch()));
-                              AppMgr::requestRedraw(Refresh::Partial); }
-      else if (sysSel == 4) { sysMsg = "Screen refreshed"; AppMgr::requestRedraw(Refresh::Clean); }
-      else { sysRollAsk = true; sysRollYes = false; AppMgr::requestRedraw(Refresh::Partial); }
+      AppMgr::requestRedraw(Refresh::Partial);
       break;
+    }
     case SysScreen::Clock:
       if (sysSel == 0)      { Clock::set12h(!Clock::use12h()); AppMgr::requestRedraw(Refresh::Partial); }
       else if (sysSel == 1) { sysGo(SysScreen::Zones, std::max(0, Clock::currentZone())); }
@@ -1358,12 +1372,17 @@ static void sysDrawScreen() {
       items.push_back(menuRow(SYS_MENU[1], ">"));
       break;
     case SysScreen::Settings:
-      items.push_back(menuRow(SYS_SETTINGS[0], ">"));
-      items.push_back(menuRow(SYS_SETTINGS[1], sleepLabel(Power::timeoutSec())));
-      items.push_back(menuRow(SYS_SETTINGS[2], fullEveryLabel(screen.fullEvery())));
-      items.push_back(menuRow(SYS_SETTINGS[3], fullSwitchLabel(screen.fullOnSwitch())));
-      items.push_back(menuRow(SYS_SETTINGS[4], ""));
-      if (Ota::canRollBack()) items.push_back(menuRow(SYS_SETTINGS[5], ""));
+      for (int id : settingsRows()) {
+        String right;
+        switch (id) {
+          case SET_CLOCK:  right = ">"; break;
+          case SET_SLEEP:  right = sleepLabel(Power::timeoutSec()); break;
+          case SET_EVERY:  right = fullEveryLabel(screen.fullEvery()); break;
+          case SET_SWITCH: right = fullSwitchLabel(screen.fullOnSwitch()); break;
+          case SET_STYLE:  right = screen.deepFull() ? "Deep (3 s)" : "Fast (1 s)"; break;
+        }
+        items.push_back(menuRow(SYS_SETTINGS[id], right));
+      }
       break;
     case SysScreen::Clock:
       items.push_back(menuRow("Format", Clock::use12h() ? "12-hour" : "24-hour"));

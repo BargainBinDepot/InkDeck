@@ -17,12 +17,13 @@ void Screen::refresh(Refresh mode) {
   bool full = (mode == Refresh::Clean) || _forceFull
            || (_fullEvery != REFRESH_NEVER && _partials >= _fullEvery)
            || (mode == Refresh::Full && _fullOnSwitch != REFRESH_NEVER && _partials >= _fullOnSwitch);
+  const bool deep = full && hasDeepClean() && (mode == Refresh::Clean || _deepFull);
   uint32_t t = millis();
-  backendPush(full);
+  backendPush(full, deep);
   _lastMs = millis() - t;
   if (full) { _partials = 0; _forceFull = false; _fulls++; }
   else      { _partials++; }
-  Serial.printf("[screen] %s refresh took %lu ms\n", full ? "full" : "partial", (unsigned long)_lastMs);
+  Serial.printf("[screen] %s refresh took %lu ms\n", deep ? "deep" : full ? "full" : "partial", (unsigned long)_lastMs);
 }
 
 void Screen::loadSettings() {
@@ -32,11 +33,14 @@ void Screen::loadSettings() {
   if (p >= 0) _fullEvery = strtoul(cfg.c_str() + p + 6, nullptr, 10);
   p = cfg.indexOf("switch=");
   if (p >= 0) _fullOnSwitch = strtoul(cfg.c_str() + p + 7, nullptr, 10);
-  Serial.printf("[screen] full refresh every %u partials, on app switch after %u\n", _fullEvery, _fullOnSwitch);
+  _deepFull = cfg.indexOf("deep=1") >= 0;
+  Serial.printf("[screen] full refresh every %u partials, on app switch after %u, %s\n",
+                _fullEvery, _fullOnSwitch, _deepFull ? "deep" : "fast");
 }
 
 bool Screen::saveSettings() {
-  return Storage::writeText(DISPLAY_CONFIG_FILE, "every=" + String(_fullEvery) + "\nswitch=" + String(_fullOnSwitch) + "\n");
+  return Storage::writeText(DISPLAY_CONFIG_FILE, "every=" + String(_fullEvery) + "\nswitch=" + String(_fullOnSwitch) +
+                                                 "\ndeep=" + String(_deepFull ? 1 : 0) + "\n");
 }
 
 void Screen::text(int x, int y, const char* s, uint8_t size) {
@@ -91,6 +95,7 @@ static uint16_t colX0[320], colX1[320];   // source column span for each TFT col
 static uint16_t lineBuf[320];
 
 bool Screen::hasRed() const { return TARGET_HAS_RED; }
+bool Screen::hasDeepClean() const { return TARGET_PANEL == PANEL_WEACT_370_BW; }
 void Screen::sleep() { digitalWrite(PIN_TFT_BL, LOW); }
 void Screen::wake()  { digitalWrite(PIN_TFT_BL, HIGH); }
 const char* Screen::backendName() const { return "TFT as " TARGET_NAME; }
@@ -159,9 +164,9 @@ void Screen::backendBegin() {
                 tw, th, TARGET_NAME, SCREEN_W, SCREEN_H, dstW, dstH, offX, offY);
 }
 
-void Screen::backendPush(bool full) {
-  if (full) {
-    // Mimic the e-paper full-refresh flash
+void Screen::backendPush(bool full, bool deep) {
+  for (int i = 0; full && i < (deep ? 3 : 1); i++) {
+    // Mimic the e-paper full-refresh flash (the deep one flashes a few times)
     tft.fillRect(offX, offY, dstW, dstH, COL_INK);
     delay(60);
     tft.fillRect(offX, offY, dstW, dstH, COL_PAPER);
@@ -250,15 +255,44 @@ void Screen::backendPush(bool full) {
   #define EPD_HAS_RED 0
   #define EPD_NAME "WeAct 2.9 BW"
 #elif DISPLAY_PANEL == PANEL_WEACT_370_BW
-  static GxEPD2_BW<GxEPD2_370_GDEY037T03, GxEPD2_370_GDEY037T03::HEIGHT>
-    epd(GxEPD2_370_GDEY037T03(PIN_DISP_CS, PIN_DISP_DC, PIN_DISP_RST, PIN_EPD_BUSY));
+  // GxEPD2's driver uses two of the UC8253's three refresh levels: partial
+  // (temperature forced to 110 C) and a fast full refresh (forced to 90 C,
+  // ~1 s). With deepClean set, a full refresh instead uses the stock waveform
+  // for the real temperature (~3 s, several flashes): the cleanest result.
+  // Same commands as the driver's _Update_Full, minus the forced temperature;
+  // the driver's soft reset after every refresh has already cleared it.
+  class GxEPD2_370_Deep : public GxEPD2_370_GDEY037T03 {
+  public:
+    using GxEPD2_370_GDEY037T03::GxEPD2_370_GDEY037T03;
+    using GxEPD2_370_GDEY037T03::refresh;
+    bool deepClean = false;
+    void refresh(bool partial_update_mode = false) {
+      if (partial_update_mode || !deepClean || _initial_refresh) {
+        GxEPD2_370_GDEY037T03::refresh(partial_update_mode);
+        return;
+      }
+      _writeCommand(0x50); _writeData(0x97);                  // VCOM and data interval, as for a full refresh
+      _writeCommand(0x04); _waitWhileBusy("powerOn", power_on_time);
+      _writeCommand(0x12); _waitWhileBusy("deepRefresh", 3 * full_refresh_time);
+      _writeCommand(0x02); _waitWhileBusy("powerOff", power_off_time);
+      _power_is_on = false;
+    }
+  };
+  static GxEPD2_BW<GxEPD2_370_Deep, GxEPD2_370_Deep::HEIGHT>
+    epd(GxEPD2_370_Deep(PIN_DISP_CS, PIN_DISP_DC, PIN_DISP_RST, PIN_EPD_BUSY));
   #define EPD_HAS_RED 0
+  #define EPD_HAS_DEEP 1
   #define EPD_NAME "WeAct 3.7 BW"
 #else
   #error "Unknown DISPLAY_PANEL"
 #endif
 
+#ifndef EPD_HAS_DEEP
+  #define EPD_HAS_DEEP 0
+#endif
+
 bool Screen::hasRed() const { return EPD_HAS_RED; }
+bool Screen::hasDeepClean() const { return EPD_HAS_DEEP; }
 void Screen::sleep() { epd.hibernate(); }      // GxEPD2 wakes the panel again on the next display()
 void Screen::wake()  {}
 const char* Screen::backendName() const { return EPD_NAME; }
@@ -279,7 +313,12 @@ void Screen::backendBegin() {
   Serial.printf("[screen] %s, %dx%d\n", EPD_NAME, epd.width(), epd.height());
 }
 
-void Screen::backendPush(bool full) {
+void Screen::backendPush(bool full, bool deep) {
+#if EPD_HAS_DEEP
+  epd.epd2.deepClean = deep;
+#else
+  (void)deep;
+#endif
   epd.setFullWindow();
   epd.fillScreen(GxEPD_WHITE);
 #if EPD_HAS_RED
