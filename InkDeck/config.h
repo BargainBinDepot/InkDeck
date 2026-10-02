@@ -21,7 +21,7 @@
 #define PANEL_WEACT_290_BW   3   // WeAct 2.9" black/white (DEPG0290BS, SSD1680)
 #define PANEL_WEACT_370_BW   4   // WeAct 3.7" black/white (GDEY037T03, UC8253) - the final panel
 
-#define DISPLAY_PANEL   PANEL_TFT_PREVIEW
+#define DISPLAY_PANEL   PANEL_WEACT_370_BW
 
 // When the TFT is plugged in, which e-paper should it pretend to be?
 #define PREVIEW_TARGET  PANEL_WEACT_370_BW
