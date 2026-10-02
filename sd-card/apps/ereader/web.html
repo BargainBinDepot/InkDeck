@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>eReader books</title>
+<script src="jszip.min.js"></script>
+<style>
+:root{--ink:#000;--mute:#555;--soft:#c6c6c6;--err:#a00000;--sys:Chicago,ChicagoFLF,Charcoal,Geneva,Verdana,sans-serif}
+*{box-sizing:border-box}body{margin:0;padding:14px 16px;background:#fff;color:#000;font:13px/1.45 Geneva,Verdana,"Segoe UI",sans-serif}
+h2{margin:0 0 4px;font:bold 14px var(--sys)}.mute{color:var(--mute);font-size:12px;margin:0 0 12px}
+.box{border:1px solid #000;padding:12px;margin:0 0 16px;background:#fff}
+.drop{border:1px dashed #000;padding:22px 12px;text-align:center;cursor:pointer}
+.drop.over{background:#000;color:#fff}.drop input{display:none}
+button{font:inherit;color:#000;background:#fff;border:1px solid #000;border-radius:7px;cursor:pointer}
+button:active{background:#000;color:#fff}
+button.b{padding:3px 14px;box-shadow:0 0 0 2px #fff,0 0 0 3px #000;margin:3px}
+button.b:disabled{color:#999;border-color:#999;box-shadow:none;cursor:default}
+button.x{padding:1px 9px;font-size:12px;margin-left:4px}
+.bar{height:10px;border:1px solid #000;margin-top:10px;display:none;background:#fff}
+.bar div{height:100%;width:0;background:repeating-linear-gradient(45deg,#000 0 2px,#fff 2px 4px);transition:width .3s}
+#st{font-size:12px;margin-top:8px;min-height:18px}.err{color:var(--err);font-weight:bold}
+table{width:100%;border-collapse:collapse;background:#fff;border:1px solid #000}
+td{padding:5px 10px;border-bottom:1px solid var(--soft);vertical-align:middle}td.r{text-align:right;white-space:nowrap}
+input[type=text]{font:inherit;padding:3px 6px;border:1px solid #000;border-radius:0;width:100%}
+</style></head><body>
+
+<h2>Upload a book</h2>
+<p class="mute">EPUB and MOBI are converted here in your browser, pictures included (sized for your screen and turned into fine black-and-white dot patterns that keep their original tones), then sent to the device. Plain .txt works too.</p>
+<div class="box">
+  <div class="drop" id="drop"><input type="file" id="file" accept=".epub,.mobi,.txt"><span id="dropText">Click or drop an EPUB, MOBI or TXT file</span></div>
+  <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <label for="pstyle"><b>Pictures:</b></label>
+    <select id="pstyle" style="font:inherit;padding:2px 4px;border:1px solid #000">
+      <option value="natural">Natural</option>
+      <option value="classic">Classic Mac</option>
+      <option value="linear">Exact light</option>
+    </select>
+    <span class="mute" id="pdesc" style="margin:0"></span>
+  </div>
+  <div class="bar" id="bar"><div id="barFill"></div></div>
+  <div id="st"></div>
+  <div style="margin-top:10px"><button class="b" id="go" disabled>Convert &amp; upload</button></div>
+</div>
+
+<h2>Books on the device</h2>
+<p class="mute">Re-process rebuilds a book from its saved original (using the picture style above), handy after converter improvements or to try another style. Books uploaded before pictures were supported only kept their text: upload those again to get their pictures.</p>
+<table id="list"></table>
+<div style="margin-top:10px"><button class="b" id="all">Re-process all</button></div>
+
+<script>
+const APP='/apps/ereader', DIR=APP+'/books', CACHE=APP+'/cache';
+const $=s=>document.querySelector(s), enc=encodeURIComponent;
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const size=b=>b<1024?b+' B':b<1048576?(b/1024).toFixed(1)+' KB':(b/1048576).toFixed(1)+' MB';
+let picked=null;
+
+// Picture style, saved on the device so it's the same from any computer
+const STYLES={
+  natural:'Floyd-Steinberg dithering: closest to how pictures look on a screen (default).',
+  classic:'Atkinson dithering with extra contrast: bold, graphic, like an old Macintosh.',
+  linear:'Floyd-Steinberg in linear light: exact average brightness, but looks darker.'
+};
+let pictureStyle='natural';
+async function loadStyle(){
+  try{const t=(await download(APP+'/converter.txt')).match(/pictures=(\w+)/);if(t&&STYLES[t[1]])pictureStyle=t[1]}catch(e){}
+  $('#pstyle').value=pictureStyle;$('#pdesc').textContent=STYLES[pictureStyle];
+}
+function wireStyle(){
+  $('#pstyle').onchange=async()=>{
+    pictureStyle=$('#pstyle').value;$('#pdesc').textContent=STYLES[pictureStyle];
+    try{await upload(APP+'/converter.txt','pictures='+pictureStyle+'\n')}catch(e){}
+  };
+}
+
+function status(m,bad){const s=$('#st');s.textContent=m;s.className=bad?'err':''}
+function bar(p){$('#bar').style.display=p==null?'none':'block';$('#barFill').style.width=(p||0)+'%'}
+
+async function api(u,o){const r=await fetch(u,o);const t=await r.text();if(!r.ok)throw new Error(t||r.status);return t?JSON.parse(t):{}}
+// data: a string (text) or bytes (Uint8Array / ArrayBuffer / Blob)
+async function upload(path,data){
+  const blob=data instanceof Blob?data:new Blob([data],{type:typeof data==='string'?'text/plain':'application/octet-stream'});
+  const fd=new FormData();fd.append('file',blob,path.split('/').pop());
+  const r=await fetch('/api/upload?path='+enc(path),{method:'POST',body:fd});if(!r.ok)throw new Error(await r.text());
+}
+async function download(path){const r=await fetch('/api/download?path='+enc(path));if(!r.ok)throw new Error('not found');return r.text()}
+async function downloadBytes(path){const r=await fetch('/api/download?path='+enc(path));if(!r.ok)throw new Error('not found');return r.arrayBuffer()}
+async function remove(path){try{await api('/api/delete?path='+enc(path),{method:'POST'})}catch(e){}}
+
+// A book's page caches depend on its text, so drop them when the text changes
+async function dropCaches(txtName){
+  let list=[];try{list=await api('/api/list?dir='+enc(CACHE))}catch(e){}
+  for(const e of list)if(!e.dir&&e.name.startsWith(txtName+'.'))await remove(CACHE+'/'+e.name);
+}
+
+// Carry reading progress over to a renamed book
+async function moveProgress(oldName,newName){
+  let p;try{p=await download(APP+'/progress.txt')}catch(e){return}
+  const out=p.split('\n').map(l=>l.startsWith(oldName+'\t')?newName+l.slice(oldName.length):l).join('\n');
+  await upload(APP+'/progress.txt',out);
+}
+
+// The eReader's reading area on this device, so pictures are made to fit it exactly
+// (same numbers as the app: title bar, margins, room for the scroll bar)
+async function readingArea(){
+  let W=416,H=240;
+  try{const i=await api('/api/info');const m=/(\d+)x(\d+)/.exec(i.display||'');if(m){W=+m[1];H=+m[2]}}catch(e){}
+  const T=W>=400?2:1, BODY=8*T+4*T+1, MARGIN=4*T;
+  return {w:W-2*MARGIN-3*T, h:H-(BODY+2*T)-T};
+}
+
+// ---------- picking a file ----------
+const drop=$('#drop'),input=$('#file');
+drop.onclick=()=>input.click();
+drop.ondragover=e=>{e.preventDefault();drop.classList.add('over')};
+drop.ondragleave=()=>drop.classList.remove('over');
+drop.ondrop=e=>{e.preventDefault();drop.classList.remove('over');pick(e.dataTransfer.files[0])};
+input.onchange=()=>pick(input.files[0]);
+function pick(f){
+  if(!f||!/\.(epub|mobi|txt)$/i.test(f.name))return status('Please choose an .epub, .mobi or .txt file.',1);
+  picked=f;$('#dropText').textContent=f.name;$('#go').disabled=false;status('');
+}
+
+function safeBase(name){
+  return name.replace(/\.(epub|mobi|txt)$/i,'').replace(/\s+/g,'_').replace(/[^A-Za-z0-9_\-']/g,'').slice(0,60)||'book';
+}
+
+// What kind of book file this is, from its first bytes
+function kindOf(buf){
+  const b=new Uint8Array(buf,0,Math.min(buf.byteLength,68));
+  if(b[0]===0x50&&b[1]===0x4B)return 'epub';                                   // "PK": a zip
+  if(String.fromCharCode(...b.slice(60,68))==='BOOKMOBI')return 'mobi';
+  return 'txt';
+}
+
+// Convert a book (bytes) and send it to the device: pictures first, then the text,
+// so the text never points at a picture that isn't there yet
+async function convertAndUpload(buf,base,{keepSource}){
+  const kind=kindOf(buf);
+  status(kind==='txt'?'Reading text...':'Reading '+kind.toUpperCase()+'...');bar(10);
+  let book;
+  if(kind==='mobi')book=extractFromMobi(buf);
+  else if(kind==='epub')book=await extractFromEpub(await JSZip.loadAsync(buf));
+  else book={raw:new TextDecoder('utf-8').decode(buf),images:new Map()};
+  bar(25);
+  const area=await readingArea();
+  const {text,bmps}=await makePictures(book.raw,book.images,area,pictureStyle,(i,n)=>{status('Converting pictures... '+i+' / '+n);bar(25+45*i/Math.max(1,n))});
+  await remove(DIR+'/'+base+'.img');                       // pictures from an earlier conversion
+  if(keepSource&&kind!=='txt'){status('Uploading the original...');await upload(DIR+'/'+base+'.src',buf)}
+  for(let i=0;i<bmps.length;i++){
+    status('Uploading pictures... '+(i+1)+' / '+bmps.length);bar(70+20*(i+1)/bmps.length);
+    await upload(DIR+'/'+base+'.img/'+bmps[i].name,bmps[i].bytes);
+  }
+  status('Uploading the text...');bar(92);
+  await upload(DIR+'/'+base+'.raw',text);
+  await upload(DIR+'/'+base+'.txt',transliterate(text));
+  await dropCaches(base+'.txt');
+  bar(100);
+  return bmps.length;
+}
+
+$('#go').onclick=async()=>{
+  if(!picked)return;
+  $('#go').disabled=true;
+  try{
+    const base=safeBase(picked.name);
+    const n=await convertAndUpload(await picked.arrayBuffer(),base,{keepSource:true});
+    status('Uploaded "'+base.replace(/_/g,' ')+'"'+(n?' with '+n+' picture'+(n===1?'':'s'):'')+'. Exit the Uploader on the device to read it.');
+    await list();
+  }catch(e){console.error(e);status('Failed: '+e.message,1)}
+  setTimeout(()=>bar(null),1500);
+  picked=null;input.value='';$('#dropText').textContent='Click or drop an EPUB, MOBI or TXT file';$('#go').disabled=true;
+};
+
+// ---------- book list ----------
+async function list(){
+  const tb=$('#list');
+  let entries=[];try{entries=await api('/api/list?dir='+enc(DIR))}catch(e){}
+  const names=new Set(entries.map(e=>e.name));
+  const books=entries.filter(e=>!e.dir&&/\.txt$/i.test(e.name));
+  tb.innerHTML=books.length?'':'<tr><td class="mute">No books yet</td></tr>';
+  for(const b of books){
+    const base=b.name.replace(/\.txt$/i,'');
+    const has={raw:names.has(base+'.raw'),src:names.has(base+'.src'),img:names.has(base+'.img')};
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td><span class="t">${esc(base.replace(/_/g,' '))}</span>${has.img?' <span class="mute">(pictures)</span>':''}</td><td class="r">${size(b.size)}</td>
+      <td class="r">${has.raw||has.src?'<button class="x rp">re-process</button>':''}<button class="x rn">rename</button><button class="x dl">delete</button></td>`;
+    tr.querySelector('.dl').onclick=async()=>{
+      if(!confirm('Delete '+base.replace(/_/g,' ')+'?'))return;
+      for(const ext of ['.txt','.raw','.src','.img'])if(names.has(base+ext))await remove(DIR+'/'+base+ext);
+      await dropCaches(b.name);list();
+    };
+    tr.querySelector('.rn').onclick=()=>rename(tr,b.name,names);
+    const rp=tr.querySelector('.rp');if(rp)rp.onclick=()=>reprocess(b.name,names).then(()=>status('Re-processed '+base.replace(/_/g,' '))).catch(e=>status('Failed: '+e.message,1)).finally(()=>{setTimeout(()=>bar(null),1500);list()});
+    tb.appendChild(tr);
+  }
+}
+
+function rename(tr,name,names){
+  const cell=tr.querySelector('td');
+  const oldBase=name.replace(/\.txt$/i,'');
+  cell.innerHTML=`<input type="text" maxlength="60" value="${esc(oldBase.replace(/_/g,' '))}">`;
+  const inp=cell.querySelector('input');inp.focus();inp.select();
+  inp.onkeydown=async e=>{
+    if(e.key==='Escape')return list();
+    if(e.key!=='Enter')return;
+    const base=safeBase(inp.value.trim()+'.txt');
+    if(base===oldBase)return list();
+    try{
+      for(const ext of ['.txt','.raw','.src','.img'])                  // the text, its original and its pictures
+        if(names.has(oldBase+ext))await api('/api/rename',{method:'POST',body:new URLSearchParams({from:DIR+'/'+oldBase+ext,to:DIR+'/'+base+ext})});
+      await dropCaches(name);await moveProgress(name,base+'.txt');status('Renamed to '+base.replace(/_/g,' '));
+    }catch(err){status('Rename failed: '+err.message,1)}
+    list();
+  };
+  inp.onblur=()=>setTimeout(list,200);
+}
+
+// From the saved original (pictures too) if there is one, else from the saved text
+async function reprocess(txtName,names){
+  const base=txtName.replace(/\.txt$/i,'');
+  status('Re-processing '+base.replace(/_/g,' ')+'...');
+  if(names.has(base+'.src')){
+    await convertAndUpload(await downloadBytes(DIR+'/'+base+'.src'),base,{keepSource:false});
+  }else{
+    const raw=await download(DIR+'/'+base+'.raw');
+    await upload(DIR+'/'+txtName,transliterate(raw));
+    await dropCaches(txtName);
+  }
+}
+
+$('#all').onclick=async()=>{
+  const entries=await api('/api/list?dir='+enc(DIR));
+  const names=new Set(entries.map(e=>e.name));
+  const todo=entries.filter(e=>/\.txt$/i.test(e.name)&&(names.has(e.name.replace(/\.txt$/i,'.raw'))||names.has(e.name.replace(/\.txt$/i,'.src'))));
+  if(!todo.length)return status('No books have a saved original.');
+  try{for(const b of todo)await reprocess(b.name,names);status('Re-processed '+todo.length+' book(s).')}
+  catch(e){status('Failed: '+e.message,1)}
+  setTimeout(()=>bar(null),1500);
+  list();
+};
+
+// =====================================================================
+//  Pictures: each image placeholder becomes a small 1-bit BMP sized for the
+//  reading area, and a marker the device lays out:  \x02img 007.bmp W H\x02
+// =====================================================================
+const PIC='\u0003';                                        // placeholder: \u0003key\u0003 on its own line
+
+async function makePictures(raw,images,area,style,progress){
+  const keys=[];const re=new RegExp(PIC+'([^'+PIC+']*)'+PIC,'g');let m;
+  while((m=re.exec(raw))!==null)if(!keys.includes(m[1]))keys.push(m[1]);
+  const made=new Map();const bmps=[];
+  for(let i=0;i<keys.length;i++){
+    progress(i+1,keys.length);
+    const blob=images.get(keys[i]);
+    if(!blob)continue;
+    try{
+      const pic=await toBmp(blob,area.w,area.h,style);
+      if(!pic)continue;                                    // tiny spacer / decoration
+      const name=String(bmps.length+1).padStart(3,'0')+'.bmp';
+      bmps.push({name,bytes:pic.bytes});
+      made.set(keys[i],'\x02img '+name+' '+pic.w+' '+pic.h+'\x02');
+    }catch(e){console.warn('picture skipped',keys[i],e)}
+  }
+  const text=raw.replace(re,(_,k)=>made.get(k)||'').replace(/\n{3,}/g,'\n\n');
+  return {text,bmps};
+}
+
+// Decode (the browser does JPEG/PNG/GIF/SVG), fit, then black-and-white.
+// Line art (almost every pixel already near black or white) always gets a clean
+// threshold. Everything else is dithered in the chosen style:
+//   natural: Floyd-Steinberg on the image's own grey values, no adjustments
+//   classic: contrast stretched, mid-tones lightened, Atkinson (the old Mac look)
+//   linear:  Floyd-Steinberg in linear light (exact average light, looks darker)
+const toLinear=new Float32Array(256).map((_,v)=>{const c=v/255;return c<=0.04045?c/12.92:Math.pow((c+0.055)/1.055,2.4)});
+
+function floydSteinberg(v,w,h,one,ink){                     // serpentine, to avoid "worms"
+  const half=one/2;
+  for(let y=0;y<h;y++){
+    const ltr=(y&1)===0,dir=ltr?1:-1;
+    for(let k=0;k<w;k++){
+      const x=ltr?k:w-1-k,i=y*w+x;
+      const old=v[i],nv=old<half?0:one;
+      ink[i]=nv?0:1;
+      const e=old-nv;
+      if(x+dir>=0&&x+dir<w)v[i+dir]+=e*7/16;
+      if(y+1<h){
+        if(x-dir>=0&&x-dir<w)v[i+w-dir]+=e*3/16;
+        v[i+w]+=e*5/16;
+        if(x+dir>=0&&x+dir<w)v[i+w+dir]+=e/16;
+      }
+    }
+  }
+}
+
+function atkinson(v,w,h,ink){
+  const n=w*h,hist=new Uint32Array(256);for(let i=0;i<n;i++)hist[Math.min(255,v[i]|0)]++;
+  let lo=0,hi=255,acc=0;
+  for(let g=0;g<256;g++){acc+=hist[g];if(acc>=n*0.01){lo=g;break}}
+  acc=0;for(let g=255;g>=0;g--){acc+=hist[g];if(acc>=n*0.01){hi=g;break}}
+  const span=Math.max(1,hi-lo);
+  for(let i=0;i<n;i++){let t=(v[i]-lo)/span;t=t<0?0:t>1?1:t;v[i]=255*Math.pow(t,0.85)}
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){
+    const i=y*w+x,old=v[i],nv=old<128?0:255;ink[i]=nv?0:1;
+    const e=(old-nv)/8;
+    const add=(xx,yy)=>{if(xx>=0&&xx<w&&yy<h)v[yy*w+xx]+=e};
+    add(x+1,y);add(x+2,y);add(x-1,y+1);add(x,y+1);add(x+1,y+1);add(x,y+2);
+  }
+}
+
+async function toBmp(blob,maxW,maxH,style='natural'){
+  const img=await createImageBitmap(blob);
+  const w0=img.width,h0=img.height;
+  if(w0<24&&h0<24)return null;
+  const s=Math.min(1,maxW/w0,maxH/h0);
+  const w=Math.max(1,Math.round(w0*s)),h=Math.max(1,Math.round(h0*s));
+  if(w<8||h<4)return null;
+  const c=document.createElement('canvas');c.width=w;c.height=h;
+  const g=c.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,w,h);
+  g.imageSmoothingEnabled=true;g.imageSmoothingQuality='high';g.drawImage(img,0,0,w,h);
+  const d=g.getImageData(0,0,w,h).data;
+  const n=w*h,grey=new Float32Array(n);let extremes=0;
+  for(let i=0;i<n;i++){
+    const v=0.299*d[i*4]+0.587*d[i*4+1]+0.114*d[i*4+2];
+    grey[i]=v;if(v<64||v>192)extremes++;
+  }
+  const ink=new Uint8Array(n);
+  if(extremes/n>0.9){
+    for(let i=0;i<n;i++)ink[i]=grey[i]<128?1:0;           // line art: crisp
+  }else if(style==='classic'){
+    atkinson(grey,w,h,ink);
+  }else if(style==='linear'){
+    const lin=new Float32Array(n);
+    for(let i=0;i<n;i++)lin[i]=0.2126*toLinear[d[i*4]]+0.7152*toLinear[d[i*4+1]]+0.0722*toLinear[d[i*4+2]];
+    floydSteinberg(lin,w,h,1,ink);
+  }else{
+    floydSteinberg(grey,w,h,255,ink);
+  }
+  return {bytes:bmp1(ink,w,h),w,h};
+}
+
+// 1-bit BMP: palette 0 = black (ink), 1 = white
+function bmp1(ink,w,h){
+  const stride=((w+31)>>5)<<2,size=62+stride*h;
+  const b=new Uint8Array(size),dv=new DataView(b.buffer);
+  b[0]=66;b[1]=77;dv.setUint32(2,size,true);dv.setUint32(10,62,true);
+  dv.setUint32(14,40,true);dv.setInt32(18,w,true);dv.setInt32(22,h,true);
+  dv.setUint16(26,1,true);dv.setUint16(28,1,true);dv.setUint32(34,stride*h,true);dv.setUint32(46,2,true);
+  b[58]=255;b[59]=255;b[60]=255;
+  for(let y=0;y<h;y++){const row=62+(h-1-y)*stride;for(let x=0;x<w;x++)if(!ink[y*w+x])b[row+(x>>3)]|=0x80>>(x&7)}
+  return b;
+}
+
+function imageType(bytes){
+  if(bytes[0]===0xFF&&bytes[1]===0xD8)return 'image/jpeg';
+  if(bytes[0]===0x89&&bytes[1]===0x50)return 'image/png';
+  if(bytes[0]===0x47&&bytes[1]===0x49)return 'image/gif';
+  if(bytes[0]===0x42&&bytes[1]===0x4D)return 'image/bmp';
+  return '';
+}
+
+// =====================================================================
+//  EPUB
+// =====================================================================
+async function extractFromEpub(zip){
+  const containerXml=await zip.file('META-INF/container.xml').async('string');
+  const opfPath=containerXml.match(/full-path="([^"]+)"/i)?.[1];
+  if(!opfPath)throw new Error('Cannot find OPF');
+  const opfDir=opfPath.includes('/')?opfPath.substring(0,opfPath.lastIndexOf('/')+1):'';
+  const opfXml=await zip.file(opfPath).async('string');
+  const manifest={};
+  const itemRe=/<item\s([^>]+)>/gi;let m;
+  while((m=itemRe.exec(opfXml))!==null){
+    const attrs=m[1];
+    const id=attrs.match(/\bid="([^"]+)"/)?.[1];
+    const href=attrs.match(/\bhref="([^"]+)"/)?.[1];
+    const type=attrs.match(/\bmedia-type="([^"]+)"/)?.[1]||'';
+    if(id&&href)manifest[id]={href,type};
+  }
+  const spineIds=[];
+  const spineSection=opfXml.match(/<spine[\s\S]*?<\/spine>/i)?.[0]||'';
+  const itemrefRe=/<itemref\s([^>]+)>/gi;
+  while((m=itemrefRe.exec(spineSection))!==null){
+    const idref=m[1].match(/\bidref="([^"]+)"/)?.[1];
+    if(idref)spineIds.push(idref);
+  }
+  if(spineIds.length===0)throw new Error('No spine items');
+  const title=opfXml.match(/<dc:title[^>]*>([^<]+)<\/dc:title>/i)?.[1]?.trim()||'Unknown';
+  const findFile=p=>{
+    let decoded=p;try{decoded=decodeURIComponent(p)}catch(e){}
+    for(const c of [p,decoded]){
+      const f=zip.file(c);if(f)return f;
+      const lc=c.toLowerCase();const k=Object.keys(zip.files).find(k=>k.toLowerCase()===lc);if(k)return zip.file(k);
+    }
+    return null;
+  };
+  const resolve=(base,rel)=>{                               // "../Images/a.jpg" relative to "OEBPS/Text/"
+    const parts=(base+rel).split('/');const out=[];
+    for(const p of parts){if(p==='..')out.pop();else if(p!=='.')out.push(p)}
+    return out.join('/');
+  };
+  const images=new Map();
+  let fullText=title+'\n\n';
+  let chapterNum=0;
+  for(const id of spineIds){
+    const item=manifest[id];
+    if(!item)continue;
+    if(item.type&&!item.type.includes('html'))continue;
+    const href=item.href.split('#')[0];
+    const fileObj=findFile(opfDir+href)||findFile(href)||findFile(opfDir+href.replace(/^.*\//,''));
+    if(!fileObj)continue;
+    const fileDir=fileObj.name.includes('/')?fileObj.name.substring(0,fileObj.name.lastIndexOf('/')+1):'';
+    let html=await fileObj.async('string');
+    let chapterTitle='';
+    const headMatch=html.match(/<h[1-3][^>]*>([\s\S]*?)<\/h[1-3]>/i);
+    if(headMatch){
+      chapterTitle=headMatch[1].replace(/<[^>]+>/g,'').trim();
+      chapterTitle=chapterTitle.replace(/\s+/g,' ').substring(0,60);
+    }
+    // pictures: <img src> and SVG <image xlink:href / href>
+    const collected=[];
+    html=html.replace(/<(img|image)\b[^>]*?(?:\bsrc|xlink:href|\bhref)\s*=\s*["']([^"']+)["'][^>]*>/gi,(tag,t,src)=>{
+      if(/^data:|^https?:/i.test(src))return tag;
+      const path=resolve(fileDir,src.split('#')[0]);
+      collected.push(path);
+      return '<p>'+PIC+path+PIC+'</p>';
+    });
+    for(const p of collected)if(!images.has(p)){
+      const f=findFile(p);
+      if(f){const bytes=await f.async('uint8array');images.set(p,new Blob([bytes],{type:imageType(bytes)||'image/jpeg'}))}
+    }
+    const text=htmlToRaw(html);
+    const hasWords=text.replace(new RegExp(PIC+'[^'+PIC+']*'+PIC,'g'),'').trim().length>0;
+    if(hasWords){
+      chapterNum++;
+      const label=chapterTitle||('Chapter '+chapterNum);
+      fullText+='\x01'+label+'\x01\n';                    // chapter marker the device reads
+      fullText+=text+'\n\n';
+    }else if(text.trim()){
+      fullText+=text+'\n\n';                               // a picture-only page (cover, plate)
+    }
+  }
+  if(fullText.trim()===title)throw new Error('No text extracted');
+  return {raw:fullText.trim(),images};
+}
+
+// =====================================================================
+//  MOBI (PalmDOC-compressed or uncompressed)
+// =====================================================================
+function extractFromMobi(buf){
+  const bytes=new Uint8Array(buf),dv=new DataView(buf);
+  const n=dv.getUint16(76);
+  const offs=[];for(let i=0;i<n;i++)offs.push(dv.getUint32(78+i*8));offs.push(bytes.length);
+  const r0=offs[0];
+  const compression=dv.getUint16(r0),textRecords=dv.getUint16(r0+8);
+  if(compression===17480)throw new Error('This MOBI uses HUFF/CDIC compression, which isn\'t supported. Convert it to EPUB first (Calibre can).');
+  const mobi=r0+16;
+  const hasMobi=String.fromCharCode(...bytes.slice(mobi,mobi+4))==='MOBI';
+  const hlen=hasMobi?dv.getUint32(mobi+4):0;
+  const encoding=hasMobi?dv.getUint32(mobi+12):1252;
+  const firstImage=hasMobi?dv.getUint32(mobi+92):0xFFFFFFFF;
+  const extraFlags=(hasMobi&&hlen>=0xE4)?dv.getUint16(r0+0xF2):0;
+  let title='';
+  if(hasMobi){
+    const off=dv.getUint32(mobi+68),len=dv.getUint32(mobi+72);
+    if(off&&len&&r0+off+len<=bytes.length)title=new TextDecoder(encoding===65001?'utf-8':'windows-1252').decode(bytes.slice(r0+off,r0+off+len)).trim();
+  }
+
+  // text records, minus their trailing entries, decompressed to bytes, then decoded
+  const parts=[];let total=0;
+  for(let i=1;i<=textRecords&&i<n;i++){
+    let rec=bytes.subarray(offs[i],offs[i+1]);
+    rec=rec.subarray(0,rec.length-trailingSize(rec,extraFlags));
+    const out=compression===2?palmDocDecompress(rec):rec;
+    parts.push(out);total+=out.length;
+  }
+  const all=new Uint8Array(total);let p=0;for(const q of parts){all.set(q,p);p+=q.length}
+  let html=new TextDecoder(encoding===65001?'utf-8':'windows-1252').decode(all);
+
+  // pictures: <img recindex="00012"> is image record firstImage + 12 - 1
+  const images=new Map();
+  html=html.replace(/<img\b[^>]*\brecindex=["']?(\d+)["']?[^>]*>/gi,(tag,idx)=>{
+    const rec=firstImage+parseInt(idx,10)-1;
+    if(firstImage===0xFFFFFFFF||rec>=n)return '';
+    const key='rec'+rec;
+    if(!images.has(key)){const b=bytes.slice(offs[rec],offs[rec+1]);const t=imageType(b);if(t)images.set(key,new Blob([b],{type:t}))}
+    return '<p>'+PIC+key+PIC+'</p>';
+  });
+
+  // chapters: sections between page breaks. A section's first line names it
+  // when it's short ("CHAPTER One"); picture-only sections get no marker.
+  let out=(title||'Unknown')+'\n\n';let num=0;
+  for(const sec of html.split(/<mbp:pagebreak[^>]*>/i)){
+    const text=htmlToRaw(sec);
+    const lines=text.split('\n').map(l=>l.trim()).filter(l=>l&&!l.startsWith(PIC));
+    if(!lines.length){if(text.trim())out+=text+'\n\n';continue}
+    num++;
+    let label=lines[0];
+    if(label.length<=10&&lines[1]&&lines[1].length<=30&&!/[.!?]$/.test(label))label+=' '+lines[1];   // "CHAPTER" + "One"
+    if(label.length>40)label='Section '+num;
+    out+='\x01'+label.replace(/\s+/g,' ')+'\x01\n'+text+'\n\n';
+  }
+  return {raw:out.trim(),images};
+}
+
+// Bytes at the end of a MOBI text record that aren't text (see the MOBI format's "extra data flags")
+function trailingSize(rec,flags){
+  let num=0;
+  for(let f=flags>>1;f;f>>=1){
+    if(f&1){
+      let pos=rec.length-num,result=0,bit=0;
+      while(pos>0){const v=rec[--pos];result|=(v&0x7F)<<bit;bit+=7;if((v&0x80)||bit>=28)break}
+      num+=result;
+    }
+  }
+  if(flags&1)num+=(rec[rec.length-num-1]&3)+1;              // multibyte character overlap
+  return Math.min(num,rec.length);
+}
+
+function palmDocDecompress(d){
+  const out=new Uint8Array(d.length*8);let o=0,i=0;
+  while(i<d.length){
+    const c=d[i++];
+    if(c===0||(c>=9&&c<=0x7f))out[o++]=c;
+    else if(c<=8){for(let j=0;j<c&&i<d.length;j++)out[o++]=d[i++]}
+    else if(c>=0xc0){out[o++]=0x20;out[o++]=c^0x80}
+    else{
+      const next=d[i++];const x=((c<<8)|next)&0x3fff;const dist=x>>3,len=(x&7)+3;
+      for(let j=0;j<len;j++){out[o]=out[o-dist];o++}
+    }
+  }
+  return out.subarray(0,o);
+}
+
+// Strip HTML, decode entities, normalise whitespace (keeps UTF-8)
+function htmlToRaw(html){
+  html=html.replace(/<script[\s\S]*?<\/script>/gi,'');
+  html=html.replace(/<style[\s\S]*?<\/style>/gi,'');
+  html=html.replace(/<head[\s\S]*?<\/head>/gi,'');
+  html=html.replace(/<\/(p|div|h[1-6]|li|tr|blockquote|section|article)[^>]*>/gi,'\n');
+  html=html.replace(/<(br|hr)[^>]*\/?>/gi,'\n');
+  html=html.replace(/<(p|div|h[1-6]|li|tr|blockquote|section|article)[^>]*>/gi,'\n');
+  html=html.replace(/<[^>]+>/g,'');
+  html=html.replace(/&nbsp;/g,' ').replace(/&amp;/g,'&').replace(/&lt;/g,'<')
+    .replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&apos;/g,"'")
+    .replace(/&#39;/g,"'").replace(/&mdash;/g,'--').replace(/&ndash;/g,'-')
+    .replace(/&ldquo;/g,'"').replace(/&rdquo;/g,'"')
+    .replace(/&lsquo;/g,"'").replace(/&rsquo;/g,"'")
+    .replace(/&hellip;/g,'...')
+    .replace(/&#x([0-9a-fA-F]+);/g,(_,h)=>String.fromCharCode(parseInt(h,16)))
+    .replace(/&#(\d+);/g,(_,n)=>String.fromCharCode(parseInt(n,10)));
+  html=html.replace(/\r\n/g,'\n').replace(/\r/g,'\n').replace(/\n{3,}/g,'\n\n');
+  html=html.split('\n').map(l=>l.trim()).filter((l,i,a)=>l||(a[i-1]!=='')).join('\n');
+  return html.trim();
+}
+
+// Non-ASCII -> ASCII so everything draws with the device's fonts
+const CYRILLIC={'А':'A','Б':'B','В':'V','Г':'G','Д':'D','Е':'E','Ж':'Zh','З':'Z','И':'I','Й':'Y','К':'K','Л':'L','М':'M',
+ 'Н':'N','О':'O','П':'P','Р':'R','С':'S','Т':'T','У':'U','Ф':'F','Х':'Kh','Ц':'Ts','Ч':'Ch','Ш':'Sh','Щ':'Shch','Ы':'Y',
+ 'Э':'E','Ю':'Yu','Я':'Ya','а':'a','б':'b','в':'v','г':'g','д':'d','е':'e','ж':'zh','з':'z','и':'i','й':'y','к':'k',
+ 'л':'l','м':'m','н':'n','о':'o','п':'p','р':'r','с':'s','т':'t','у':'u','ф':'f','х':'kh','ц':'ts','ч':'ch','ш':'sh',
+ 'щ':'shch','ы':'y','э':'e','ю':'yu','я':'ya','Ъ':'','Ь':'','ъ':'','ь':''};
+function transliterate(t){
+  t=t.replace(/[\u2018\u2019\u201A\u201B]/g,"'")
+    .replace(/[\u201C\u201D\u201E\u201F]/g,'"')
+    .replace(/[\u2014\u2015]/g,'--').replace(/[\u2013]/g,'-')
+    .replace(/[\u2026]/g,'...').replace(/[\u00A0]/g,' ')
+    .replace(/[\u00E9\u00E8\u00EA\u00EB]/g,'e')
+    .replace(/[\u00E0\u00E1\u00E2\u00E3\u00E4]/g,'a')
+    .replace(/[\u00F3\u00F4\u00F5\u00F6\u00F2]/g,'o')
+    .replace(/[\u00FA\u00FB\u00FC\u00F9]/g,'u')
+    .replace(/[\u00ED\u00EE\u00EF\u00EC]/g,'i')
+    .replace(/[\u00F1]/g,'n').replace(/[\u00E7]/g,'c')
+    .replace(/\u00A9/g,'(c)').replace(/\u00AE/g,'(R)').replace(/\u2122/g,'(TM)')
+    .replace(/[\u00AB\u00BB]/g,'"').replace(/[\u2039\u203A]/g,"'").replace(/[\u2022\u00B7]/g,'*')
+    .replace(/\u00BD/g,'1/2').replace(/\u00BC/g,'1/4').replace(/\u00BE/g,'3/4')
+    .replace(/[\uFFFD\u200B\uFEFF\u00AD]/g,'')
+    .replace(/[\u0400-\u04FF]/g,c=>c in CYRILLIC?CYRILLIC[c]:c)
+    .replace(/[\u4E00-\u9FFF\u3400-\u4DBF]+/g,'[Chinese]')
+    .replace(/[\u3040-\u309F\u30A0-\u30FF]+/g,'[Japanese]')
+    .replace(/[\uAC00-\uD7AF]+/g,'[Korean]')
+    .replace(/[^\x00-\x7F]/g,'?');
+  return t;
+}
+
+wireStyle();
+loadStyle();
+list();
+</script>
+</body>
+</html>
