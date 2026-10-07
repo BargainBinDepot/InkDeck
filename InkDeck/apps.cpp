@@ -1236,12 +1236,13 @@ static String sysMsg;
 
 static const char* SYS_MENU[]     = { "About this device", "Settings" };
 // Settings rows; the list shown depends on the panel and firmware (see settingsRows)
-enum SetRow { SET_CLOCK, SET_SLEEP, SET_EVERY, SET_SWITCH, SET_STYLE, SET_CLEAN, SET_ROLLBACK, SET_SOUND };
+enum SetRow { SET_CLOCK, SET_SLEEP, SET_EVERY, SET_SWITCH, SET_STYLE, SET_CLEAN, SET_ROLLBACK, SET_SOUND, SET_CLICK };
 static const char* SYS_SETTINGS[] = { "Clock", "Sleep after", "Full refresh after", "Full on app switch",
-                                      "Full refresh type", "Deep clean screen", "Previous firmware", "Sound" };
+                                      "Full refresh type", "Deep clean screen", "Previous firmware", "Sound",
+                                      "Arrow key click" };
 static std::vector<int> settingsRows() {
   std::vector<int> r = { SET_CLOCK, SET_SLEEP };
-  if (Sound::hasBuzzer()) r.push_back(SET_SOUND);
+  if (Sound::hasBuzzer()) r.insert(r.end(), { SET_SOUND, SET_CLICK });
   r.insert(r.end(), { SET_EVERY, SET_SWITCH });
   if (screen.hasDeepClean()) r.push_back(SET_STYLE);
   r.push_back(SET_CLEAN);
@@ -1331,6 +1332,7 @@ static void sysActivate() {
         case SET_SWITCH: screen.setFullOnSwitch(nextChoice(FULL_SWITCH_CHOICES, screen.fullOnSwitch())); break;
         case SET_STYLE:  screen.setDeepFull(!screen.deepFull()); break;
         case SET_SOUND:  Sound::setEnabled(!Sound::enabled()); Sound::beep(); break;   // a beep to show it's on
+        case SET_CLICK:  Sound::setClicks(!Sound::clicks()); break;
         case SET_CLEAN:  sysMsg = "Screen cleaned"; AppMgr::requestRedraw(Refresh::Clean); return;
         case SET_ROLLBACK: sysRollAsk = true; sysRollYes = false; break;
       }
@@ -1434,6 +1436,7 @@ static void sysDrawScreen() {
           case SET_SWITCH: right = fullSwitchLabel(screen.fullOnSwitch()); break;
           case SET_STYLE:  right = screen.deepFull() ? "Deep (3 s)" : "Fast (1 s)"; break;
           case SET_SOUND:  right = Sound::enabled() ? "On" : "Off"; break;
+          case SET_CLICK:  right = !Sound::enabled() ? "(sound off)" : Sound::clicks() ? "On" : "Off"; break;
         }
         items.push_back(menuRow(SYS_SETTINGS[id], right));
       }

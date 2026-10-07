@@ -1,5 +1,5 @@
 // =====================================================================
-//  InkDeck firmware v0.23
+//  InkDeck firmware v0.24
 //  ESP32-S3 + CardKB + e-paper (or the ST7789 TFT preview)
 //
 //  v0.1   display HAL, CardKB input, paged launcher, app framework
@@ -55,6 +55,7 @@
 //         voltage divider, charging "+", low notice, "Battery empty" shutdown.
 //  v0.23  Passive buzzer (PIN_BUZZER): sys.beep() / sys.sound() for apps,
 //         Settings > Sound On/Off.
+//  v0.24  Arrow keys click (Settings > Arrow key click).
 //
 //  Arduino IDE: Tools -> Partition Scheme -> "Huge APP (3MB No OTA/1MB SPIFFS)"
 //  with Flash Size 4MB (the default partition is too small for WiFi + Lua).
@@ -107,6 +108,7 @@ void loop() {
   // Every key typed meanwhile (e.g. during the last refresh), then one redraw for all of them
   while (uint8_t key = kb.poll()) {
     Power::noteInput();
+    if (key == K_UP || key == K_DOWN || key == K_LEFT || key == K_RIGHT) Sound::click();
     AppMgr::handleKey(key);
   }
   AppMgr::tick();

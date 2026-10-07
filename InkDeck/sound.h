@@ -26,4 +26,10 @@ bool play(const std::vector<Note>& tune);   // replaces whatever is playing; fal
 bool beep(uint16_t freq = 2700, uint16_t ms = 80);
 void stop();
 
+// A short tick for the arrow keys (Settings > Arrow key click). Skipped while
+// an app's beep or tune is playing, so it never cuts one off.
+void click();
+bool clicks();
+bool setClicks(bool on);
+
 }

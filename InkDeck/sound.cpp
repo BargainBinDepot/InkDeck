@@ -5,6 +5,12 @@
 namespace Sound {
 
 static bool on = true;
+static bool clickOn = true;
+
+static bool save() {
+  return Storage::writeText(SOUND_CONFIG_FILE, String("on=") + (on ? "1" : "0") +
+                                               "\nclick=" + (clickOn ? "1" : "0") + "\n");
+}
 
 bool hasBuzzer()  { return PIN_BUZZER >= 0; }
 bool enabled()    { return on; }
@@ -24,7 +30,10 @@ static void startNote(const Note& n) {
 
 void begin() {
   String cfg;
-  if (Storage::readText(SOUND_CONFIG_FILE, cfg, 64)) on = cfg.indexOf("on=0") < 0;
+  if (Storage::readText(SOUND_CONFIG_FILE, cfg, 64)) {
+    on = cfg.indexOf("on=0") < 0;
+    clickOn = cfg.indexOf("click=0") < 0;
+  }
   ledcAttach(PIN_BUZZER, 2700, 10);
   ledcWriteTone(PIN_BUZZER, 0);       // pin low: transistor off, no current through the buzzer
   Serial.printf("[sound] buzzer on GPIO %d, sound %s\n", PIN_BUZZER, on ? "on" : "off");
@@ -47,6 +56,10 @@ bool play(const std::vector<Note>& tune) {
   return true;
 }
 
+void click() {
+  if (on && clickOn && !playing) play({ { 2700, 12 } });
+}
+
 void loop() {
   if (!playing || (int32_t)(millis() - noteEnd) < 0) return;
   if (next < queue.size()) startNote(queue[next++]);
@@ -58,6 +71,7 @@ void loop() {
 void begin() {}
 void loop() {}
 void stop() {}
+void click() {}
 bool play(const std::vector<Note>&) { return false; }
 
 #endif
@@ -67,7 +81,10 @@ bool beep(uint16_t freq, uint16_t ms) { return play({ { freq, ms } }); }
 bool setEnabled(bool v) {
   on = v;
   if (!on) stop();
-  return Storage::writeText(SOUND_CONFIG_FILE, String("on=") + (on ? "1" : "0") + "\n");
+  return save();
 }
+
+bool clicks() { return clickOn; }
+bool setClicks(bool v) { clickOn = v; return save(); }
 
 }
