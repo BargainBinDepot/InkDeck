@@ -1,5 +1,5 @@
 // =====================================================================
-//  InkDeck firmware v0.29
+//  InkDeck firmware v0.30
 //  ESP32-S3 + CardKB + e-paper (or the ST7789 TFT preview)
 //
 //  v0.1   display HAL, CardKB input, paged launcher, app framework
@@ -64,6 +64,7 @@
 //  v0.28  Battery: About and the log show the raw GPIO voltage.
 //  v0.29  Keyboard rides out read glitches (was deaf for a second after one);
 //         buzzer at 20% duty (BUZZER_DUTY) to draw less current on battery.
+//  v0.30  Uploads retry short SD writes; "card full" only when it is.
 //
 //  Arduino IDE: Tools -> Partition Scheme -> "Huge APP (3MB No OTA/1MB SPIFFS)"
 //  with Flash Size 4MB (the default partition is too small for WiFi + Lua).

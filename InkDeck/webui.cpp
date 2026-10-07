@@ -213,6 +213,24 @@ static void hNotFound() {
   sendErr(404, "not found");
 }
 
+// Write one received chunk to the upload file. SD writes can fail for a moment
+// (a card hiccup, or a supply dip on battery while WiFi is busy), so a short write
+// is retried a few times before the upload is given up. Returns "" or the reason.
+static String writeChunk(const uint8_t* buf, size_t len) {
+  size_t done = 0;
+  for (int attempt = 0; attempt < 4 && done < len; attempt++) {
+    if (attempt) { delay(20 * attempt); Serial.printf("[web] SD write retry %d\n", attempt); }
+    done += upFile.write(buf + done, len - done);
+  }
+  if (done == len) return "";
+  // Only blame a full card when it really is full
+  const uint64_t freeBytes = SD.totalBytes() - SD.usedBytes();
+  Serial.printf("[web] SD write failed: %u of %u bytes, %llu KB free\n",
+                (unsigned)done, (unsigned)len, (unsigned long long)(freeBytes / 1024));
+  if (freeBytes < 256 * 1024) return "the SD card is full";
+  return "couldn't write to the SD card (a card or power glitch); please try again";
+}
+
 static void hUploadChunk() {
   HTTPUpload& up = server.upload();
   switch (up.status) {
@@ -230,10 +248,13 @@ static void hUploadChunk() {
       break;
 
     case UPLOAD_FILE_WRITE:
-      if (upFile && upFile.write(up.buf, up.currentSize) != up.currentSize) {
-        upErr = "write failed (card full?)";
-        upFile.close();
-        SD.remove(upTmp.c_str());
+      if (upFile) {
+        const String why = writeChunk(up.buf, up.currentSize);
+        if (why.length()) {
+          upErr = why;
+          upFile.close();
+          SD.remove(upTmp.c_str());
+        }
       }
       break;
 
@@ -285,10 +306,13 @@ static void hFirmwareChunk() {
       if (!upFile) upErr = "can't create the update file";
       break;
     case UPLOAD_FILE_WRITE:
-      if (upFile && upFile.write(up.buf, up.currentSize) != up.currentSize) {
-        upErr = "write failed (card full?)";
-        upFile.close();
-        SD.remove(upTmp.c_str());
+      if (upFile) {
+        const String why = writeChunk(up.buf, up.currentSize);
+        if (why.length()) {
+          upErr = why;
+          upFile.close();
+          SD.remove(upTmp.c_str());
+        }
       }
       break;
     case UPLOAD_FILE_END:
