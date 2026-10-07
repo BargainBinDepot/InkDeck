@@ -51,6 +51,7 @@ private:
   bool _present = false;
   uint32_t _lastPoll = 0;
   uint32_t _lastProbe = 0;
+  uint8_t _misses = 0;             // failed reads in a row (a glitch isn't a lost keyboard)
 };
 
 extern CardKB kb;

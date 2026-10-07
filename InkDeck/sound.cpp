@@ -25,6 +25,9 @@ static bool playing = false;
 
 static void startNote(const Note& n) {
   ledcWriteTone(PIN_BUZZER, n.freq);  // 0 = silent (a rest)
+  // ledcWriteTone drives a 50% square wave, the buzzer's loudest and hungriest.
+  // A shorter on-time draws far less current (it matters on battery), a bit quieter.
+  if (n.freq) ledcWrite(PIN_BUZZER, (1023 * BUZZER_DUTY) / 100);
   noteEnd = millis() + n.ms;
 }
 

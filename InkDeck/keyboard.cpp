@@ -32,9 +32,9 @@ void CardKB::service() {
   if (now - _lastPoll < KB_POLL_MS) return;
   _lastPoll = now;
 
-  // Not detected: re-probe once a second so hot-plugging works
+  // Not detected: re-probe every 200 ms, so hot-plugging works and a dropout is short
   if (!_present) {
-    if (now - _lastProbe > 1000) {
+    if (now - _lastProbe > 200) {
       _lastProbe = now;
       _present = probeCardKB();
       if (_present) Serial.println("[kb] CardKB connected");
@@ -42,12 +42,18 @@ void CardKB::service() {
     return;
   }
 
+  // A failed read is usually a glitch (e.g. a supply dip while the buzzer sounds on
+  // battery): just try again next poll. Only 10 in a row (100 ms) means it's gone.
   if (Wire.requestFrom((uint8_t)CARDKB_ADDR, (uint8_t)1) != 1) {
-    _present = false;
-    _lastProbe = now;
-    Serial.println("[kb] CardKB lost");
+    if (++_misses >= 10) {
+      _present = false;
+      _misses = 0;
+      _lastProbe = now;
+      Serial.println("[kb] CardKB lost");
+    }
     return;
   }
+  _misses = 0;
 
   uint8_t c = Wire.read();
   if (!c) return;
