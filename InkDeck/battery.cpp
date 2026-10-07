@@ -15,6 +15,7 @@ static float vSmooth = 0;          // 0 = no reading yet
 static int   bars = -1;
 static bool  usb = false;
 static int   lowReadings = 0;      // readings in a row at or below BATT_SHUTDOWN_V
+static int   goneReadings = 0;     // readings in a row with no battery voltage
 static uint32_t lastRead = 0;
 
 // Bar thresholds (resting LiPo voltage, light load). Roughly:
@@ -47,10 +48,13 @@ void measureNow() {
   const float v = readOnce();
   usb = readUsb();
   lastRead = millis();
-  if (v < 2.5f) {                                    // nothing connected (or the divider isn't fitted)
-    vSmooth = 0; bars = -1; lowReadings = 0;
+  // No battery voltage (switch off, nothing wired): hide the meter only after 3 such
+  // readings in a row, and show it again only above 2.8 V, so it can't blink on and off
+  if (v < 2.5f || (bars < 0 && v < 2.8f)) {
+    if (bars < 0 || ++goneReadings >= 3) { vSmooth = 0; bars = -1; lowReadings = 0; goneReadings = 0; }
     return;
   }
+  goneReadings = 0;
   // Smooth: the first reading is taken as is, later ones move it 25% of the way
   vSmooth = vSmooth == 0 ? v : vSmooth + 0.25f * (v - vSmooth);
 

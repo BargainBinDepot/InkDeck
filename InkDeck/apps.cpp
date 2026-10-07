@@ -110,12 +110,15 @@ static void drawStatusBar(const char* title, bool inApp) {
   // Pinstripes: T-thick lines every 2T, inset from the top, bottom and sides
   for (int y = 2 * T; y + T <= h - T; y += 2 * T) g.fillRect(T, y, SCREEN_W - 2 * T, T, INK);
 
-  // Clock on the right, on a white gap, with a short stripe tail after it
+  // Clock on the right, on a white gap, with a short stripe tail after it. The gap is
+  // always as wide as the longest time ("12:00 PM" / "00:00"), whatever it shows now
+  // ("9:05 PM", "zZ" while asleep), so the stripes never move: partial refreshes
+  // that swap stripes and digits in the same spot leave ghosts on e-paper.
   const String clk = Power::sleeping() ? String("zZ") : Clock::hhmm();   // asleep: don't show a stale time
-  const int cw = screen.textWidth(clk.c_str(), T);
+  const int cw = screen.textWidth(Clock::use12h() ? "12:00 PM" : "00:00", T);
   const int clockX = SCREEN_W - 5 * T - cw;
   g.fillRect(clockX - 2 * T, 0, cw + 4 * T, h, PAPER);
-  screen.text(clockX, 2 * T, clk.c_str(), T);
+  screen.text(clockX + cw - screen.textWidth(clk.c_str(), T), 2 * T, clk.c_str(), T);   // right-aligned
   int rightLimit = clockX - 2 * T;                             // the title stays left of this
 
   // Battery: 4 bars in a battery outline, left of the clock; a "+" while charging

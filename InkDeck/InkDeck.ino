@@ -1,5 +1,5 @@
 // =====================================================================
-//  InkDeck firmware v0.25
+//  InkDeck firmware v0.26
 //  ESP32-S3 + CardKB + e-paper (or the ST7789 TFT preview)
 //
 //  v0.1   display HAL, CardKB input, paged launcher, app framework
@@ -58,6 +58,8 @@
 //  v0.24  Arrow keys click (Settings > Arrow key click).
 //  v0.25  Buzzer on GPIO 13 by default; no stripe slivers between the
 //         battery icon and the clock.
+//  v0.26  Fixed-width clock slot in the title bar (no stripe ghosts after
+//         sleep's "zZ"); battery meter can't blink on and off.
 //
 //  Arduino IDE: Tools -> Partition Scheme -> "Huge APP (3MB No OTA/1MB SPIFFS)"
 //  with Flash Size 4MB (the default partition is too small for WiFi + Lua).
