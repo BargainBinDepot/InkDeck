@@ -12,7 +12,7 @@
 //    43, 44        UART0 TX/RX
 // =====================================================================
 
-#define FW_VERSION "v0.26"
+#define FW_VERSION "v0.27"
 #define BRAND_NAME "InkDeck"
 
 // ---------------- Which display is plugged in ----------------
@@ -126,7 +126,7 @@
 #define SLEEP_POLL_MS      150       // how often the keyboard is checked while asleep
 
 // ---------------- Battery meter (see battery.h for the wiring) ----------------
-#define BATT_MONITOR     0       // 1 once the divider is fitted: 4-bar meter in the title bar
+#define BATT_MONITOR     1       // 4-bar meter in the title bar (hidden while no battery voltage is seen); 0 = off
 #define PIN_BATT_ADC     4       // ADC1 channel (safe with WiFi on): middle of the battery divider
 #define PIN_USB_SENSE    -1      // GPIO on a 100k/100k divider from the charger's USB 5V, or -1 (no charging icon)
 #define BATT_DIVIDER     2.0f    // (top + bottom) / bottom: 100k + 100k = 2.0
