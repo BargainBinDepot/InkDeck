@@ -23,11 +23,14 @@ static uint32_t lastRead = 0;
 static const float LEVEL_V[4] = { 3.62f, 3.73f, 3.82f, 3.95f };
 static const float HYST = 0.03f;   // a bar comes back only 30 mV above its threshold
 
+static float pinV = 0;              // last raw reading at PIN_BATT_ADC (for About / the log)
+
 static float readOnce() {
   // Average many samples; analogReadMilliVolts uses the chip's factory calibration
   uint32_t sum = 0;
   for (int i = 0; i < 32; i++) sum += analogReadMilliVolts(PIN_BATT_ADC);
-  return sum / 32.0f / 1000.0f * BATT_DIVIDER * BATT_CAL;
+  pinV = sum / 32.0f / 1000.0f;
+  return pinV * BATT_DIVIDER * BATT_CAL;
 }
 
 static bool readUsb() {
@@ -48,6 +51,7 @@ void measureNow() {
   const float v = readOnce();
   usb = readUsb();
   lastRead = millis();
+  Serial.printf("[batt] GPIO %d = %.3f V -> battery %.2f V\n", PIN_BATT_ADC, pinV, v);
   // No battery voltage (switch off, nothing wired): hide the meter only after 3 such
   // readings in a row, and show it again only above 2.8 V, so it can't blink on and off
   if (v < 2.5f || (bars < 0 && v < 2.8f)) {
@@ -72,7 +76,7 @@ bool  charging() { return usb; }
 bool  critical() { return lowReadings >= 2; }       // two readings in a row: not just a spike
 
 String label() {
-  if (!present()) return "no battery seen";
+  if (!present()) return "none seen (GPIO " + String(PIN_BATT_ADC) + " = " + String(pinV, 2) + " V)";
   static const char* names[] = { "empty", "1/4", "1/2", "3/4", "full" };
   return String(vSmooth, 2) + " V, " + names[bars] + (usb ? ", charging" : "");
 }
