@@ -1,6 +1,7 @@
 #include "screen.h"
 #include "storage.h"
 #include "keyboard.h"
+#include "sound.h"
 
 Screen screen;
 
@@ -206,7 +207,7 @@ void Screen::backendPush(bool full, bool deep) {
       }
     }
     tft.writePixels(lineBuf, dstW);
-    if ((dy & 15) == 15) kb.service();          // don't miss keys during a slow push
+    if ((dy & 15) == 15) { kb.service(); Sound::loop(); }   // don't miss keys during a slow push
   }
   tft.endWrite();
 
@@ -301,6 +302,7 @@ const char* Screen::backendName() const { return EPD_NAME; }
 // keyboard so keys typed meanwhile are queued, not lost
 static void whileBusy(const void*) {
   kb.service();
+  Sound::loop();
   delay(1);
 }
 

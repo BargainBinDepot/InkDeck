@@ -12,7 +12,7 @@
 //    43, 44        UART0 TX/RX
 // =====================================================================
 
-#define FW_VERSION "v0.22"
+#define FW_VERSION "v0.23"
 #define BRAND_NAME "InkDeck"
 
 // ---------------- Which display is plugged in ----------------
@@ -135,6 +135,10 @@
                                  // 3.3V regulator gives up: ~3.45 for an LDO like the ME6211, ~4.2 for an AMS1117
 #define BATT_READ_SEC    30      // how often to measure
 #define BATT_RECHECK_MIN 10      // while shut down: wake this often to see if it's been charged
+
+// ---------------- Buzzer (passive, through an NPN transistor) ----------------
+#define PIN_BUZZER       -1      // 13 once the buzzer is wired; -1 = no buzzer (sys.beep does nothing)
+#define SOUND_CONFIG_FILE "/system/sound.txt"   // System > Settings > Sound On/Off
 
 // ---------------- Reserved for later ----------------
 #define PIN_WAKE_BTN    5   // RTC-capable GPIO for deep-sleep wake

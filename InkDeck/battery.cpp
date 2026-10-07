@@ -5,6 +5,7 @@
 #include "webui.h"
 #include "clock.h"
 #include "esp_sleep.h"
+#include "sound.h"
 
 namespace Battery {
 
@@ -76,6 +77,7 @@ String label() {
 // Wakes every BATT_RECHECK_MIN minutes, or when USB power arrives if that's wired.
 static void shutDown(bool drawScreen) {
   Serial.printf("[batt] %.2f V: empty, shutting down\n", vSmooth);
+  Sound::stop();
   if (drawScreen) {
     using namespace UI;
     screen.clear();

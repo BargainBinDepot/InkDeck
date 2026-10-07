@@ -10,6 +10,7 @@
 #include "power.h"
 #include "ota.h"
 #include "battery.h"
+#include "sound.h"
 #include <algorithm>
 #include <vector>
 
@@ -1235,11 +1236,13 @@ static String sysMsg;
 
 static const char* SYS_MENU[]     = { "About this device", "Settings" };
 // Settings rows; the list shown depends on the panel and firmware (see settingsRows)
-enum SetRow { SET_CLOCK, SET_SLEEP, SET_EVERY, SET_SWITCH, SET_STYLE, SET_CLEAN, SET_ROLLBACK };
+enum SetRow { SET_CLOCK, SET_SLEEP, SET_EVERY, SET_SWITCH, SET_STYLE, SET_CLEAN, SET_ROLLBACK, SET_SOUND };
 static const char* SYS_SETTINGS[] = { "Clock", "Sleep after", "Full refresh after", "Full on app switch",
-                                      "Full refresh type", "Deep clean screen", "Previous firmware" };
+                                      "Full refresh type", "Deep clean screen", "Previous firmware", "Sound" };
 static std::vector<int> settingsRows() {
-  std::vector<int> r = { SET_CLOCK, SET_SLEEP, SET_EVERY, SET_SWITCH };
+  std::vector<int> r = { SET_CLOCK, SET_SLEEP };
+  if (Sound::hasBuzzer()) r.push_back(SET_SOUND);
+  r.insert(r.end(), { SET_EVERY, SET_SWITCH });
   if (screen.hasDeepClean()) r.push_back(SET_STYLE);
   r.push_back(SET_CLEAN);
   if (Ota::canRollBack()) r.push_back(SET_ROLLBACK);
@@ -1327,6 +1330,7 @@ static void sysActivate() {
         case SET_EVERY:  screen.setFullEvery(nextChoice(FULL_EVERY_CHOICES, screen.fullEvery())); break;
         case SET_SWITCH: screen.setFullOnSwitch(nextChoice(FULL_SWITCH_CHOICES, screen.fullOnSwitch())); break;
         case SET_STYLE:  screen.setDeepFull(!screen.deepFull()); break;
+        case SET_SOUND:  Sound::setEnabled(!Sound::enabled()); Sound::beep(); break;   // a beep to show it's on
         case SET_CLEAN:  sysMsg = "Screen cleaned"; AppMgr::requestRedraw(Refresh::Clean); return;
         case SET_ROLLBACK: sysRollAsk = true; sysRollYes = false; break;
       }
@@ -1429,6 +1433,7 @@ static void sysDrawScreen() {
           case SET_EVERY:  right = fullEveryLabel(screen.fullEvery()); break;
           case SET_SWITCH: right = fullSwitchLabel(screen.fullOnSwitch()); break;
           case SET_STYLE:  right = screen.deepFull() ? "Deep (3 s)" : "Fast (1 s)"; break;
+          case SET_SOUND:  right = Sound::enabled() ? "On" : "Off"; break;
         }
         items.push_back(menuRow(SYS_SETTINGS[id], right));
       }

@@ -1,5 +1,5 @@
 // =====================================================================
-//  InkDeck firmware v0.22
+//  InkDeck firmware v0.23
 //  ESP32-S3 + CardKB + e-paper (or the ST7789 TFT preview)
 //
 //  v0.1   display HAL, CardKB input, paged launcher, app framework
@@ -53,6 +53,8 @@
 //         Files / Get Info quick on huge folders; no sleep while on USB.
 //  v0.22  Battery meter (BATT_MONITOR): 4 bars in the title bar from a
 //         voltage divider, charging "+", low notice, "Battery empty" shutdown.
+//  v0.23  Passive buzzer (PIN_BUZZER): sys.beep() / sys.sound() for apps,
+//         Settings > Sound On/Off.
 //
 //  Arduino IDE: Tools -> Partition Scheme -> "Huge APP (3MB No OTA/1MB SPIFFS)"
 //  with Flash Size 4MB (the default partition is too small for WiFi + Lua).
@@ -66,6 +68,7 @@
 #include "power.h"
 #include "ota.h"
 #include "battery.h"
+#include "sound.h"
 
 // Lua's parser recurses; give the main loop more stack than the default 8 KB
 #ifdef SET_LOOP_TASK_STACK_SIZE
@@ -92,6 +95,7 @@ void setup() {
   kb.begin();
   Storage::begin();
   screen.loadSettings();
+  Sound::begin();
   Clock::begin();
   Power::begin();
   AppMgr::begin();
@@ -107,6 +111,7 @@ void loop() {
   }
   AppMgr::tick();
   Battery::loop();
+  Sound::loop();
 
   static bool markedGood = false;              // ran 20 s without crashing: keep this firmware
   if (!markedGood && millis() > 20000) { Ota::markGood(); markedGood = true; }

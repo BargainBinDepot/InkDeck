@@ -7,6 +7,7 @@
 #include "webui.h"
 #include "clock.h"
 #include "battery.h"
+#include "sound.h"
 #include "esp_sleep.h"
 #if ARDUINO_USB_MODE
 #include "driver/usb_serial_jtag.h"
@@ -59,6 +60,7 @@ static bool mustStayAwake() {
 
 static void sleepNow() {
   Serial.println("[power] going to sleep");
+  Sound::stop();                               // a tone left on would keep current flowing through the buzzer
   asleep = true;
   AppMgr::requestRedraw(Refresh::Partial);     // redraw once with "zZ" instead of the clock
   AppMgr::tick();

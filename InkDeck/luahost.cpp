@@ -11,6 +11,7 @@
 #include <map>
 #include "clock.h"
 #include "battery.h"
+#include "sound.h"
 #include <time.h>
 #include <algorithm>
 #include <Fonts/FreeMono9pt7b.h>
@@ -391,10 +392,43 @@ static int l_battery(lua_State* Ls) {
   return 3;
 }
 
+// sys.beep([freq [, ms]]) -> true if it plays: a tone in the background (default 2700 Hz, 80 ms).
+// sys.beep({ {freq, ms}, ... }) plays a short tune; freq 0 is a rest. A new beep replaces
+// the one playing; sys.beep(0) stops. False when there's no buzzer or sound is off.
+static int l_beep(lua_State* Ls) {
+  std::vector<Sound::Note> tune;
+  auto note = [](lua_Integer f, lua_Integer ms) {
+    if (f > 0 && f < 50) f = 50;                 // lowest tone the LEDC timer makes reliably
+    return Sound::Note{ (uint16_t)std::max<lua_Integer>(0, std::min<lua_Integer>(f, 20000)),
+                        (uint16_t)std::max<lua_Integer>(1, std::min<lua_Integer>(ms, 5000)) };
+  };
+  if (lua_istable(Ls, 1)) {
+    const lua_Integer n = std::min<lua_Integer>(luaL_len(Ls, 1), 128);
+    for (lua_Integer i = 1; i <= n; i++) {
+      lua_rawgeti(Ls, 1, i);
+      if (lua_istable(Ls, -1)) {
+        lua_rawgeti(Ls, -1, 1); lua_rawgeti(Ls, -2, 2);
+        tune.push_back(note(lua_tointeger(Ls, -2), lua_isnoneornil(Ls, -1) ? 100 : lua_tointeger(Ls, -1)));
+        lua_pop(Ls, 2);
+      }
+      lua_pop(Ls, 1);
+    }
+  } else {
+    const lua_Integer f = lua_isnoneornil(Ls, 1) ? 2700 : lua_tointeger(Ls, 1);
+    const lua_Integer ms = lua_isnoneornil(Ls, 2) ? 80 : lua_tointeger(Ls, 2);
+    if (f <= 0) { Sound::stop(); lua_pushboolean(Ls, 0); return 1; }
+    tune.push_back(note(f, ms));
+  }
+  lua_pushboolean(Ls, Sound::play(tune));
+  return 1;
+}
+// sys.sound() -> true if beeps will be heard (there's a buzzer and sound is on)
+static int l_sound(lua_State* Ls) { lua_pushboolean(Ls, Sound::available()); return 1; }
+
 static const luaL_Reg sysLib[] = {
   { "exit", l_exit }, { "millis", l_millis }, { "title", l_title }, { "mem", l_mem },
   { "clipboard", l_clipboard }, { "time", l_time }, { "date", l_date }, { "random", l_random },
-  { "stayawake", l_stayawake }, { "battery", l_battery },
+  { "stayawake", l_stayawake }, { "battery", l_battery }, { "beep", l_beep }, { "sound", l_sound },
   { nullptr, nullptr }
 };
 
@@ -668,6 +702,7 @@ void close() {
   imageCache.clear();
   imageOrder.clear();
   Power::keepAwake(false);                     // an app's stay-awake request ends with the app
+  Sound::stop();                               // and so does its tune
   if (L) {
     lua_close(L);
     L = nullptr;
