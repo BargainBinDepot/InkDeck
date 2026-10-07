@@ -123,14 +123,14 @@ static void drawStatusBar(const char* title, bool inApp) {
     const int bh = CH - T, seg = 2 * T, gap = T;               // body height, bar width, spacing
     const int bw = 4 * seg + 5 * gap + 2 * T;                  // body width
     const int bx = clockX - 4 * T - bw - 2 * T, by = 2 * T;
-    g.fillRect(bx - 2 * T, 0, bw + 3 * T + 2 * T, h, PAPER);
+    g.fillRect(bx - 2 * T, 0, clockX - bx, h, PAPER);        // one white gap up to the clock's: no stripe slivers
     for (int i = 0; i < T; i++) g.drawRect(bx + i, by + i, bw - 2 * i, bh - 2 * i, INK);
     g.fillRect(bx + bw, by + bh / 4, T + (T > 1 ? 0 : 1), bh / 2, INK);   // the nub
     for (int i = 0; i < Battery::level(); i++)
       g.fillRect(bx + T + gap + i * (seg + gap), by + T + gap, seg, bh - 2 * T - 2 * gap, INK);
     if (Battery::charging()) {                                 // "+" just left of the battery
       const int cx = bx - 4 * T, cy = by + bh / 2;
-      g.fillRect(cx - 3 * T, 0, 6 * T, h, PAPER);
+      g.fillRect(cx - 3 * T, 0, bx - 2 * T - (cx - 3 * T), h, PAPER);   // joins the battery's gap
       g.fillRect(cx - 2 * T, cy - T / 2, 4 * T + 1, T, INK);
       g.fillRect(cx - T / 2, cy - 2 * T, T, 4 * T + 1, INK);
       rightLimit = cx - 4 * T;

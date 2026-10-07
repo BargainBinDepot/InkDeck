@@ -1,5 +1,5 @@
 // =====================================================================
-//  InkDeck firmware v0.24
+//  InkDeck firmware v0.25
 //  ESP32-S3 + CardKB + e-paper (or the ST7789 TFT preview)
 //
 //  v0.1   display HAL, CardKB input, paged launcher, app framework
@@ -56,6 +56,8 @@
 //  v0.23  Passive buzzer (PIN_BUZZER): sys.beep() / sys.sound() for apps,
 //         Settings > Sound On/Off.
 //  v0.24  Arrow keys click (Settings > Arrow key click).
+//  v0.25  Buzzer on GPIO 13 by default; no stripe slivers between the
+//         battery icon and the clock.
 //
 //  Arduino IDE: Tools -> Partition Scheme -> "Huge APP (3MB No OTA/1MB SPIFFS)"
 //  with Flash Size 4MB (the default partition is too small for WiFi + Lua).

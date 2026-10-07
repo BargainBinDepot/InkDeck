@@ -12,7 +12,7 @@
 //    43, 44        UART0 TX/RX
 // =====================================================================
 
-#define FW_VERSION "v0.24"
+#define FW_VERSION "v0.25"
 #define BRAND_NAME "InkDeck"
 
 // ---------------- Which display is plugged in ----------------
@@ -137,7 +137,7 @@
 #define BATT_RECHECK_MIN 10      // while shut down: wake this often to see if it's been charged
 
 // ---------------- Buzzer (passive, through an NPN transistor) ----------------
-#define PIN_BUZZER       -1      // 13 once the buzzer is wired; -1 = no buzzer (sys.beep does nothing)
+#define PIN_BUZZER       13      // the buzzer's MOSFET; -1 = no buzzer (sys.beep does nothing, no Sound settings)
 #define SOUND_CONFIG_FILE "/system/sound.txt"   // System > Settings > Sound On/Off
 
 // ---------------- Reserved for later ----------------
