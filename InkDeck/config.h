@@ -12,7 +12,7 @@
 //    43, 44        UART0 TX/RX
 // =====================================================================
 
-#define FW_VERSION "v0.31"
+#define FW_VERSION "v0.32"
 #define BRAND_NAME "InkDeck"
 
 // ---------------- Which display is plugged in ----------------
@@ -80,7 +80,8 @@
 #define EPD_ROTATION   1          // landscape; use 3 if the image is upside down
 
 // 3.7" only: pictures in 4 shades of grey (books converted with "4 greys").
-// Settings found with the InkDeck_GreyTest sketch. 0 = black and white only.
+// Defaults, found with the InkDeck_GreyTest sketch; System > Settings > Grey
+// calibration changes them on the device. EPD_GREY_PICTURES 0 = black and white only.
 #define EPD_GREY_PICTURES  1
 #define EPD_GREY_LIGHT     2     // frames of darkening for light grey
 #define EPD_GREY_DARK      4     // ... dark grey

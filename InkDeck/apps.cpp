@@ -11,6 +11,7 @@
 #include "ota.h"
 #include "battery.h"
 #include "sound.h"
+#include "greycal.h"
 #include <algorithm>
 #include <vector>
 
@@ -1232,22 +1233,23 @@ static void keyTestDraw() {
 //  System — About (device info) and Settings (Clock, screen refresh).
 //  Up/Down move, Right/Enter open or change, Left/Esc go back.
 // =====================================================================
-enum class SysScreen { Menu, About, Settings, Clock, Zones };
+enum class SysScreen { Menu, About, Settings, Clock, Zones, Grey };
 static SysScreen sysScr = SysScreen::Menu;
 static int sysSel = 0, sysTop = 0;
 static String sysMsg;
 
 static const char* SYS_MENU[]     = { "About this device", "Settings" };
 // Settings rows; the list shown depends on the panel and firmware (see settingsRows)
-enum SetRow { SET_CLOCK, SET_SLEEP, SET_EVERY, SET_SWITCH, SET_STYLE, SET_CLEAN, SET_ROLLBACK, SET_SOUND, SET_CLICK };
+enum SetRow { SET_CLOCK, SET_SLEEP, SET_EVERY, SET_SWITCH, SET_STYLE, SET_CLEAN, SET_ROLLBACK, SET_SOUND, SET_CLICK, SET_GREY };
 static const char* SYS_SETTINGS[] = { "Clock", "Sleep after", "Full refresh after", "Full on app switch",
                                       "Full refresh type", "Deep clean screen", "Previous firmware", "Sound",
-                                      "Arrow key click" };
+                                      "Arrow key click", "Grey calibration" };
 static std::vector<int> settingsRows() {
   std::vector<int> r = { SET_CLOCK, SET_SLEEP };
   if (Sound::hasBuzzer()) r.insert(r.end(), { SET_SOUND, SET_CLICK });
   r.insert(r.end(), { SET_EVERY, SET_SWITCH });
   if (screen.hasDeepClean()) r.push_back(SET_STYLE);
+  if (screen.canShowGrey()) r.push_back(SET_GREY);
   r.push_back(SET_CLEAN);
   if (Ota::canRollBack()) r.push_back(SET_ROLLBACK);
   return r;
@@ -1285,7 +1287,7 @@ static void sysGo(SysScreen to, int select = 0) {
   sysSel = select;
   sysTop = 0;
   sysMsg = "";
-  static const char* titles[] = { "System", "About", "Settings", "Clock", "Time zone" };
+  static const char* titles[] = { "System", "About", "Settings", "Clock", "Time zone", "Grey calibration" };
   AppMgr::setTitle(titles[(int)to]);
   AppMgr::requestRedraw(Refresh::Full);
 }
@@ -1298,6 +1300,7 @@ static int sysCount() {
     case SysScreen::Settings: return settingsRows().size();
     case SysScreen::Clock:    return CLOCK_ITEMS;
     case SysScreen::Zones:    return Clock::zoneCount();
+    case SysScreen::Grey:     return GreyCal::rows();
     default:                  return 0;
   }
 }
@@ -1310,6 +1313,11 @@ static bool sysBack() {
     case SysScreen::Settings: sysGo(SysScreen::Menu, 1); break;
     case SysScreen::Clock:    sysGo(SysScreen::Settings, 0); break;
     case SysScreen::Zones:    sysGo(SysScreen::Clock, 1); break;
+    case SysScreen::Grey: {                                    // back to its row in Settings
+      const std::vector<int> r = settingsRows();
+      sysGo(SysScreen::Settings, std::find(r.begin(), r.end(), (int)SET_GREY) - r.begin());
+      break;
+    }
   }
   return true;
 }
@@ -1336,6 +1344,7 @@ static void sysActivate() {
         case SET_STYLE:  screen.setDeepFull(!screen.deepFull()); break;
         case SET_SOUND:  Sound::setEnabled(!Sound::enabled()); Sound::beep(); break;   // a beep to show it's on
         case SET_CLICK:  Sound::setClicks(!Sound::clicks()); break;
+        case SET_GREY:   sysGo(SysScreen::Grey); return;
         case SET_CLEAN:  sysMsg = "Screen cleaned"; AppMgr::requestRedraw(Refresh::Clean); return;
         case SET_ROLLBACK: sysRollAsk = true; sysRollYes = false; break;
       }
@@ -1365,6 +1374,16 @@ static void sysKey(uint8_t k) {
         sysMsg = "Couldn't switch back";
       }
     } else if (k == K_ESC) sysRollAsk = false;
+    else return;
+    AppMgr::requestRedraw(Refresh::Partial);
+    return;
+  }
+  if (sysScr == SysScreen::Grey) {                             // Left/Right change the selected timing
+    const int n = GreyCal::rows();
+    if (k == K_UP)                         sysSel = (sysSel + n - 1) % n;
+    else if (k == K_DOWN)                  sysSel = (sysSel + 1) % n;
+    else if (k == K_LEFT || k == K_RIGHT)  GreyCal::change(sysSel, k == K_RIGHT ? 1 : -1);
+    else if (k == K_ENTER)                 GreyCal::activate(sysSel);
     else return;
     AppMgr::requestRedraw(Refresh::Partial);
     return;
@@ -1440,6 +1459,7 @@ static void sysDrawScreen() {
           case SET_STYLE:  right = screen.deepFull() ? "Deep (3 s)" : "Fast (1 s)"; break;
           case SET_SOUND:  right = Sound::enabled() ? "On" : "Off"; break;
           case SET_CLICK:  right = !Sound::enabled() ? "(sound off)" : Sound::clicks() ? "On" : "Off"; break;
+          case SET_GREY:   right = ">"; break;
         }
         items.push_back(menuRow(SYS_SETTINGS[id], right));
       }
@@ -1480,6 +1500,11 @@ static void sysDrawScreen() {
 }
 
 static void sysDraw() {
+  if (sysScr == SysScreen::Grey) {
+    GreyCal::draw(sysSel);
+    screen.text(MARGIN, SCREEN_H - LINE_H, GreyCal::hint(), T);
+    return;
+  }
   sysDrawScreen();
   if (sysRollAsk)
     drawDialog("Go back to the previous firmware?", { String("Now running ") + FW_VERSION + ".",

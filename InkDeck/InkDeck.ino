@@ -1,5 +1,5 @@
 // =====================================================================
-//  InkDeck firmware v0.31
+//  InkDeck firmware v0.32
 //  ESP32-S3 + CardKB + e-paper (or the ST7789 TFT preview)
 //
 //  v0.1   display HAL, CardKB input, paged launcher, app framework
@@ -68,6 +68,8 @@
 //  v0.31  Grey pictures: BMPs with grey shades show in 4 greys on the 3.7"
 //         e-paper (own waveforms, one flashing refresh when they appear) and
 //         on the TFT preview; a dot pattern on other panels.
+//  v0.32  Settings > Grey calibration: test picture (shades, ramps, a ball in
+//         each eReader picture style) with the grey timings adjustable live.
 //
 //  Arduino IDE (ESP32S3 Dev Module): Flash Size 16MB, Partition Scheme
 //  "16M Flash (3MB APP/9.9MB FATFS)", PSRAM "OPI PSRAM", USB CDC On Boot

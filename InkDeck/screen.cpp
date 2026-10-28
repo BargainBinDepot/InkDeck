@@ -42,9 +42,31 @@ void Screen::refresh(Refresh mode) {
   Serial.printf("[screen] %s refresh took %lu ms\n", deep ? "deep" : full ? "full" : "partial", (unsigned long)_lastMs);
 }
 
+// Grey waveform timings; used by greyRefresh() on the 3.7" e-paper
+static Screen::GreyTiming gT = Screen::greyDefaults();
+
+Screen::GreyTiming Screen::greyTiming() const { return gT; }
+
+bool Screen::setGreyTiming(const GreyTiming& t) {
+  gT = t;
+  redoGrey();
+  return saveSettings();
+}
+
 void Screen::loadSettings() {
   String cfg;
-  if (!Storage::readText(DISPLAY_CONFIG_FILE, cfg, 128)) return;
+  if (!Storage::readText(DISPLAY_CONFIG_FILE, cfg, 256)) return;
+  auto num = [&](const char* key, uint8_t& v, int lo, int hi) {
+    const int p = cfg.indexOf(key);
+    if (p < 0) return;
+    const long n = strtol(cfg.c_str() + p + strlen(key), nullptr, 10);
+    if (n >= lo && n <= hi) v = (uint8_t)n;
+  };
+  num("greylight=", gT.light, 1, 63);
+  num("greydark=", gT.dark, 1, 63);
+  num("greyblack=", gT.black, 1, 63);
+  num("greyclear=", gT.clear, 1, 63);
+  num("greyrepeat=", gT.repeat, 0, 1);
   int p = cfg.indexOf("every=");
   if (p >= 0) _fullEvery = strtoul(cfg.c_str() + p + 6, nullptr, 10);
   p = cfg.indexOf("switch=");
@@ -56,7 +78,10 @@ void Screen::loadSettings() {
 
 bool Screen::saveSettings() {
   return Storage::writeText(DISPLAY_CONFIG_FILE, "every=" + String(_fullEvery) + "\nswitch=" + String(_fullOnSwitch) +
-                                                 "\ndeep=" + String(_deepFull ? 1 : 0) + "\n");
+                                                 "\ndeep=" + String(_deepFull ? 1 : 0) +
+                                                 "\ngreylight=" + String(gT.light) + "\ngreydark=" + String(gT.dark) +
+                                                 "\ngreyblack=" + String(gT.black) + "\ngreyclear=" + String(gT.clear) +
+                                                 "\ngreyrepeat=" + String(gT.repeat) + "\n");
 }
 
 // Black-and-white stand-in for a grey level (2x2 pattern, so grey areas
@@ -148,6 +173,7 @@ static uint16_t lineBuf[320];
 bool Screen::hasRed() const { return TARGET_HAS_RED; }
 bool Screen::hasDeepClean() const { return TARGET_PANEL == PANEL_WEACT_370_BW; }
 bool Screen::canShowGrey() const { return true; }      // the preview shows greys as colours
+bool Screen::hasGreyWaveforms() const { return false; }
 void Screen::sleep() { digitalWrite(PIN_TFT_BL, LOW); }
 void Screen::wake()  { digitalWrite(PIN_TFT_BL, HIGH); }
 const char* Screen::backendName() const { return "TFT as " TARGET_NAME; }
@@ -353,6 +379,7 @@ void Screen::backendPush(bool full, bool deep) {
 bool Screen::hasRed() const { return EPD_HAS_RED; }
 bool Screen::hasDeepClean() const { return EPD_HAS_DEEP; }
 bool Screen::canShowGrey() const { return EPD_CAN_GREY; }
+bool Screen::hasGreyWaveforms() const { return EPD_CAN_GREY; }
 void Screen::sleep() { epd.hibernate(); _sleptSinceGrey = true; }   // GxEPD2 wakes the panel again on the next display()
 void Screen::wake()  {}
 const char* Screen::backendName() const { return EPD_NAME; }
@@ -434,7 +461,7 @@ static void gLut(uint8_t reg, const GPhase* ph, int n, int groups) {
         used = true;
       }
     }
-    if (used) buf[g * 7] = buf[g * 7 + 5] = buf[g * 7 + 6] = EPD_GREY_REPEAT;
+    if (used) buf[g * 7] = buf[g * 7 + 5] = buf[g * 7 + 6] = gT.repeat;
   }
   gCmd(reg);
   gData(buf, groups * 7);
@@ -442,8 +469,8 @@ static void gLut(uint8_t reg, const GPhase* ph, int n, int groups) {
 // balance push, shake dark, shake light, then darken for f frames (0 = white)
 static int gWave(GPhase* ph, uint8_t f) {
   ph[0] = { 2, f };
-  ph[1] = { 1, EPD_GREY_CLEAR };
-  ph[2] = { 2, EPD_GREY_CLEAR };
+  ph[1] = { 1, gT.clear };
+  ph[2] = { 2, gT.clear };
   ph[3] = { 1, f };
   return 4;
 }
@@ -495,9 +522,11 @@ static void greyRefresh(const uint8_t* bw, const uint8_t* grey) {
   gCmd(0x50); gData1(0xD7);                            // border left alone
   GPhase w[4], lt[4], dk[4], bk[4], vc[4];
   gWave(w, 0);
-  gWave(lt, EPD_GREY_LIGHT);
-  gWave(dk, EPD_GREY_DARK);
-  gWave(bk, EPD_GREY_BLACK);
+  gWave(lt, gT.light);
+  gWave(dk, gT.dark);
+  gWave(bk, gT.black);
+  Serial.printf("[screen] grey timing: light %u dark %u black %u clear %u repeat %u\n",
+                gT.light, gT.dark, gT.black, gT.clear, gT.repeat);
   for (int i = 0; i < 4; i++) vc[i] = { 0, bk[i].fr };
   gLut(0x20, vc, 4, 8);                                // VCOM
   gLut(0x21, w,  4, 6);                                // old 1 new 1 -> white
