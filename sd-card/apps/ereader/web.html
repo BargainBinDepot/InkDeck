@@ -44,6 +44,14 @@ input[type=text]{font:inherit;padding:3px 6px;border:1px solid #000;border-radiu
     <span class="mute" id="pdesc" style="margin:0"></span>
   </div>
   <div style="margin-top:6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <label for="pshades"><b>Shades:</b></label>
+    <select id="pshades" style="font:inherit;padding:2px 4px;border:1px solid #000">
+      <option value="4">4 greys</option>
+      <option value="2">Black &amp; white</option>
+    </select>
+    <span class="mute" id="sdesc" style="margin:0"></span>
+  </div>
+  <div style="margin-top:6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
     <label for="protate"><b>Tall pictures:</b></label>
     <select id="protate" style="font:inherit;padding:2px 4px;border:1px solid #000">
       <option value="1">Turn sideways to fit</option>
@@ -59,7 +67,7 @@ input[type=text]{font:inherit;padding:3px 6px;border:1px solid #000;border-radiu
 </div>
 
 <h2>Books on the device</h2>
-<p class="mute">Re-process rebuilds a book from its saved original (using the picture style above), handy after converter improvements or to try another style. Books uploaded before pictures were supported only kept their text: upload those again to get their pictures.</p>
+<p class="mute">Re-process rebuilds a book from its saved original (using the picture settings above), handy after converter improvements or to try another style. Books uploaded before pictures were supported only kept their text: upload those again to get their pictures.</p>
 <table id="list"></table>
 <div style="margin-top:10px"><button class="b" id="all">Re-process all</button></div>
 
@@ -76,7 +84,9 @@ const STYLES={
   classic:'Atkinson dithering with extra contrast: bold, graphic, like an old Macintosh.',
   linear:'Floyd-Steinberg in linear light: exact average brightness, but looks darker.'
 };
-let pictureStyle='natural',rotateTall=true;
+let pictureStyle='natural',rotateTall=true,shades=4;
+const SHADES_DESC={4:'White, light grey, dark grey and black, on the 3.7" e-paper with InkDeck v0.18 or newer (a pattern elsewhere). A page with a picture flashes once when it appears.',
+                   2:'Black and white dots only: works on every screen, no extra flash.'};
 const ROTATE_DESC={true:'Tall pictures that would be shrunk are turned a quarter-turn (top to the left) to fill the page.',
                    false:'Tall pictures stay upright and are shrunk to fit.'};
 async function loadStyle(){
@@ -84,16 +94,19 @@ async function loadStyle(){
     const t=await download(APP+'/converter.txt');
     const m=t.match(/pictures=(\w+)/);if(m&&STYLES[m[1]])pictureStyle=m[1];
     const r=t.match(/rotate=(\d)/);if(r)rotateTall=r[1]==='1';
+    const g=t.match(/shades=(\d)/);if(g)shades=g[1]==='2'?2:4;
   }catch(e){}
   $('#pstyle').value=pictureStyle;$('#pdesc').textContent=STYLES[pictureStyle];
   $('#protate').value=rotateTall?'1':'0';$('#rdesc').textContent=ROTATE_DESC[rotateTall];
+  $('#pshades').value=String(shades);$('#sdesc').textContent=SHADES_DESC[shades];
 }
 async function saveStyle(){
-  try{await upload(APP+'/converter.txt','pictures='+pictureStyle+'\nrotate='+(rotateTall?1:0)+'\n')}catch(e){}
+  try{await upload(APP+'/converter.txt','pictures='+pictureStyle+'\nrotate='+(rotateTall?1:0)+'\nshades='+shades+'\n')}catch(e){}
 }
 function wireStyle(){
   $('#pstyle').onchange=()=>{pictureStyle=$('#pstyle').value;$('#pdesc').textContent=STYLES[pictureStyle];saveStyle()};
   $('#protate').onchange=()=>{rotateTall=$('#protate').value==='1';$('#rdesc').textContent=ROTATE_DESC[rotateTall];saveStyle()};
+  $('#pshades').onchange=()=>{shades=$('#pshades').value==='2'?2:4;$('#sdesc').textContent=SHADES_DESC[shades];saveStyle()};
 }
 
 function status(m,bad){const s=$('#st');s.textContent=m;s.className=bad?'err':''}
@@ -341,7 +354,7 @@ $('#all').onclick=async()=>{
 };
 
 // =====================================================================
-//  Pictures: each image placeholder becomes a small 1-bit BMP sized for the
+//  Pictures: each image placeholder becomes a small BMP sized for the
 //  reading area, and a marker the device lays out:  \x02img 007.bmp W H\x02
 // =====================================================================
 const PIC='\u0003',ALT='\u0004';                        // placeholder: \u0003key\u0004alt\u0003 on its own line
@@ -368,23 +381,33 @@ async function makePictures(raw,images,area,style,progress){
   return {text,bmps};
 }
 
-// Decode (the browser does JPEG/PNG/GIF/SVG), fit, then black-and-white.
-// Line art (almost every pixel already near black or white) always gets a clean
-// threshold. Everything else is dithered in the chosen style:
+// Decode (the browser does JPEG/PNG/GIF/SVG), fit, then reduce to the screen's
+// shades (black and white, or 4 greys). Line art (almost every pixel already
+// near black or white) always gets a clean threshold. Everything else is
+// dithered in the chosen style:
 //   natural: Floyd-Steinberg on the image's own grey values, no adjustments
 //   classic: contrast stretched, mid-tones lightened, Atkinson (the old Mac look)
 //   linear:  Floyd-Steinberg in linear light (exact average light, looks darker)
+// Results are "levels": 0 = white, 1 = light grey, 2 = dark grey, 3 = black.
 const toLinear=new Float32Array(256).map((_,v)=>{const c=v/255;return c<=0.04045?c/12.92:Math.pow((c+0.055)/1.055,2.4)});
 
-function floydSteinberg(v,w,h,one,ink){                     // serpentine, to avoid "worms"
-  const half=one/2;
+// The shades a picture is reduced to, as brightness values (darkest first)
+function palette(style,n){
+  if(style==='linear')return n===4?[0,toLinear[85],toLinear[170],1]:[0,1];
+  return n===4?[0,85,170,255]:[0,255];
+}
+function nearest(pal,v){let k=0,d=Infinity;for(let j=0;j<pal.length;j++){const e=Math.abs(v-pal[j]);if(e<d){d=e;k=j}}return k}
+const levelOf=(k,P)=>Math.round((P-1-k)*3/(P-1));          // palette index -> level
+
+function floydSteinberg(v,w,h,pal,out){                     // serpentine, to avoid "worms"
+  const P=pal.length;
   for(let y=0;y<h;y++){
     const ltr=(y&1)===0,dir=ltr?1:-1;
     for(let k=0;k<w;k++){
       const x=ltr?k:w-1-k,i=y*w+x;
-      const old=v[i],nv=old<half?0:one;
-      ink[i]=nv?0:1;
-      const e=old-nv;
+      const old=v[i],q=nearest(pal,old);
+      out[i]=levelOf(q,P);
+      const e=old-pal[q];
       if(x+dir>=0&&x+dir<w)v[i+dir]+=e*7/16;
       if(y+1<h){
         if(x-dir>=0&&x-dir<w)v[i+w-dir]+=e*3/16;
@@ -395,19 +418,26 @@ function floydSteinberg(v,w,h,one,ink){                     // serpentine, to av
   }
 }
 
-function atkinson(v,w,h,ink){
-  const n=w*h,hist=new Uint32Array(256);for(let i=0;i<n;i++)hist[Math.min(255,v[i]|0)]++;
+function atkinson(v,w,h,pal,out){
+  const n=w*h,hist=new Uint32Array(256);for(let i=0;i<n;i++)hist[Math.max(0,Math.min(255,v[i]|0))]++;
   let lo=0,hi=255,acc=0;
   for(let g=0;g<256;g++){acc+=hist[g];if(acc>=n*0.01){lo=g;break}}
   acc=0;for(let g=255;g>=0;g--){acc+=hist[g];if(acc>=n*0.01){hi=g;break}}
-  const span=Math.max(1,hi-lo);
+  const span=Math.max(1,hi-lo),P=pal.length;
   for(let i=0;i<n;i++){let t=(v[i]-lo)/span;t=t<0?0:t>1?1:t;v[i]=255*Math.pow(t,0.85)}
   for(let y=0;y<h;y++)for(let x=0;x<w;x++){
-    const i=y*w+x,old=v[i],nv=old<128?0:255;ink[i]=nv?0:1;
-    const e=(old-nv)/8;
+    const i=y*w+x,old=v[i],q=nearest(pal,old);out[i]=levelOf(q,P);
+    const e=(old-pal[q])/8;
     const add=(xx,yy)=>{if(xx>=0&&xx<w&&yy<h)v[yy*w+xx]+=e};
     add(x+1,y);add(x+2,y);add(x-1,y+1);add(x,y+1);add(x+1,y+1);add(x,y+2);
   }
+}
+
+// Dither grey values (0..255, or linear 0..1 for 'linear') into levels
+function ditherLevels(grey,lin,w,h,style,n,out){
+  if(style==='classic')atkinson(grey,w,h,palette(style,n),out);
+  else if(style==='linear')floydSteinberg(lin,w,h,palette(style,n),out);
+  else floydSteinberg(grey,w,h,palette(style,n),out);
 }
 
 async function toBmp(blob,maxW,maxH,style='natural',rotate=false){
@@ -435,19 +465,38 @@ async function toBmp(blob,maxW,maxH,style='natural',rotate=false){
     const v=0.299*d[i*4]+0.587*d[i*4+1]+0.114*d[i*4+2];
     grey[i]=v;if(v<64||v>192)extremes++;
   }
-  const ink=new Uint8Array(n);
+  const lv=new Uint8Array(n);
   if(extremes/n>0.9){
-    for(let i=0;i<n;i++)ink[i]=grey[i]<128?1:0;           // line art: crisp
-  }else if(style==='classic'){
-    atkinson(grey,w,h,ink);
-  }else if(style==='linear'){
-    const lin=new Float32Array(n);
-    for(let i=0;i<n;i++)lin[i]=0.2126*toLinear[d[i*4]]+0.7152*toLinear[d[i*4+1]]+0.0722*toLinear[d[i*4+2]];
-    floydSteinberg(lin,w,h,1,ink);
+    for(let i=0;i<n;i++)lv[i]=grey[i]<128?3:0;             // line art: crisp
   }else{
-    floydSteinberg(grey,w,h,255,ink);
+    let lin=null;
+    if(style==='linear'){
+      lin=new Float32Array(n);
+      for(let i=0;i<n;i++)lin[i]=0.2126*toLinear[d[i*4]]+0.7152*toLinear[d[i*4+1]]+0.0722*toLinear[d[i*4+2]];
+    }
+    ditherLevels(grey,lin,w,h,style,shades,lv);
   }
-  return {bytes:bmp1(ink,w,h),w,h};
+  return {bytes:bmpLevels(lv,w,h),w,h};
+}
+
+// Levels -> BMP: 1-bit when there's no grey in it, otherwise 4-bit with a
+// 4-entry grey palette (index = level). Old firmware reads the 4-bit file too,
+// as black and white.
+function bmpLevels(lv,w,h){
+  let grey=false;for(let i=0;i<lv.length;i++)if(lv[i]===1||lv[i]===2){grey=true;break}
+  if(!grey){const ink=new Uint8Array(lv.length);for(let i=0;i<lv.length;i++)ink[i]=lv[i]>=2?1:0;return bmp1(ink,w,h)}
+  return bmp4(lv,w,h);
+}
+
+function bmp4(lv,w,h){
+  const stride=((w*4+31)>>5)<<2,off=14+40+16,size=off+stride*h;
+  const b=new Uint8Array(size),dv=new DataView(b.buffer);
+  b[0]=66;b[1]=77;dv.setUint32(2,size,true);dv.setUint32(10,off,true);
+  dv.setUint32(14,40,true);dv.setInt32(18,w,true);dv.setInt32(22,h,true);
+  dv.setUint16(26,1,true);dv.setUint16(28,4,true);dv.setUint32(34,stride*h,true);dv.setUint32(46,4,true);dv.setUint32(50,4,true);
+  [255,170,85,0].forEach((v,i)=>{b[54+i*4]=v;b[55+i*4]=v;b[56+i*4]=v});
+  for(let y=0;y<h;y++){const row=off+(h-1-y)*stride;for(let x=0;x<w;x++){const v=lv[y*w+x]&3;b[row+(x>>1)]|=(x&1)?v:v<<4}}
+  return b;
 }
 
 // 1-bit BMP: palette 0 = black (ink), 1 = white
@@ -496,9 +545,10 @@ async function renderGrey(page,scale){
   return {w:c.width,h:c.height,grey};
 }
 
-// Text stays crisp (a threshold); photo areas get dithered in the chosen style.
-// Areas are told apart in 16x16 tiles: photos are full of mid-greys, text isn't.
-function pdfTo1bit(grey,w,h,style){
+// Text stays crisp (a threshold); photo areas get dithered in the chosen style
+// and shades. Areas are told apart in 16x16 tiles: photos are full of
+// mid-greys, text isn't. Returns levels (0 white .. 3 black).
+function pdfToLevels(grey,w,h,style){
   const T=16,tw=Math.ceil(w/T),th=Math.ceil(h/T),photo=new Uint8Array(tw*th);
   for(let ty=0;ty<th;ty++)for(let tx=0;tx<tw;tx++){
     let mid=0,n=0;
@@ -509,16 +559,18 @@ function pdfTo1bit(grey,w,h,style){
   const grown=photo.slice();
   for(let ty=0;ty<th;ty++)for(let tx=0;tx<tw;tx++)if(photo[ty*tw+tx])
     for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){const X=tx+dx,Y=ty+dy;if(X>=0&&X<tw&&Y>=0&&Y<th)grown[Y*tw+X]=1}
-  const ink=new Uint8Array(w*h);
+  const lv=new Uint8Array(w*h);
   const isPhoto=(x,y)=>grown[(y/T|0)*tw+(x/T|0)]===1;
   let any=false;for(const v of grown)if(v){any=true;break}
   if(any){                                                   // dither the photo areas
-    const v=grey.slice(),pink=new Uint8Array(w*h);
-    if(style==='classic')atkinson(v,w,h,pink);else floydSteinberg(v,w,h,255,pink);
-    for(let y=0;y<h;y++)for(let x=0;x<w;x++)if(isPhoto(x,y))ink[y*w+x]=pink[y*w+x];
+    const v=grey.slice(),plv=new Uint8Array(w*h);
+    let lin=null;
+    if(style==='linear'){lin=new Float32Array(w*h);for(let i=0;i<w*h;i++)lin[i]=toLinear[Math.max(0,Math.min(255,grey[i]|0))]}
+    ditherLevels(v,lin,w,h,style,shades,plv);
+    for(let y=0;y<h;y++)for(let x=0;x<w;x++)if(isPhoto(x,y))lv[y*w+x]=plv[y*w+x];
   }
-  for(let y=0;y<h;y++)for(let x=0;x<w;x++)if(!any||!isPhoto(x,y))ink[y*w+x]=grey[y*w+x]<170?1:0;   // text: a little bold
-  return ink;
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++)if(!any||!isPhoto(x,y))lv[y*w+x]=grey[y*w+x]<170?3:0;   // text: a little bold
+  return lv;
 }
 
 async function extractFromPdf(buf,area,style,progress){
@@ -566,7 +618,7 @@ async function extractFromPdf(buf,area,style,progress){
     const cx=Math.min(r.w-1,Math.round(x0*r.w)),W=Math.min(area.w,r.w-cx);
     const col=new Float32Array(W*r.h);
     for(let y=0;y<r.h;y++)for(let x=0;x<W;x++)col[y*W+x]=r.grey[y*r.w+cx+x];
-    const ink=pdfTo1bit(col,W,r.h,style);
+    const ink=pdfToLevels(col,W,r.h,style);           // levels; 0 = blank
     const blank=y=>{for(let x=0;x<W;x++)if(ink[y*W+x])return false;return true};
     let top=0,bot=r.h-1;while(top<r.h&&blank(top))top++;while(bot>top&&blank(bot))bot--;
     if(chapterAt.has(pn))text+='\x01'+chapterAt.get(pn)+'\x01\n';
@@ -581,7 +633,7 @@ async function extractFromPdf(buf,area,style,progress){
       const sh=end-y,strip=new Uint8Array(W*sh);
       for(let yy=0;yy<sh;yy++)for(let x=0;x<W;x++)strip[yy*W+x]=ink[(y+yy)*W+x];
       const name='p'+String(pn).padStart(4,'0')+'_'+(++part)+'.bmp';
-      bmps.push({name,bytes:bmp1(strip,W,sh)});
+      bmps.push({name,bytes:bmpLevels(strip,W,sh)});
       text+='\x02img '+name+' '+W+' '+sh+'\x02\n';
       y=end;
     }

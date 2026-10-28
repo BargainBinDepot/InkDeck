@@ -1,5 +1,5 @@
 // =====================================================================
-//  InkDeck firmware v0.30
+//  InkDeck firmware v0.31
 //  ESP32-S3 + CardKB + e-paper (or the ST7789 TFT preview)
 //
 //  v0.1   display HAL, CardKB input, paged launcher, app framework
@@ -65,9 +65,13 @@
 //  v0.29  Keyboard rides out read glitches (was deaf for a second after one);
 //         buzzer at 20% duty (BUZZER_DUTY) to draw less current on battery.
 //  v0.30  Uploads retry short SD writes; "card full" only when it is.
+//  v0.31  Grey pictures: BMPs with grey shades show in 4 greys on the 3.7"
+//         e-paper (own waveforms, one flashing refresh when they appear) and
+//         on the TFT preview; a dot pattern on other panels.
 //
-//  Arduino IDE: Tools -> Partition Scheme -> "Huge APP (3MB No OTA/1MB SPIFFS)"
-//  with Flash Size 4MB (the default partition is too small for WiFi + Lua).
+//  Arduino IDE (ESP32S3 Dev Module): Flash Size 16MB, Partition Scheme
+//  "16M Flash (3MB APP/9.9MB FATFS)", PSRAM "OPI PSRAM", USB CDC On Boot
+//  Enabled. sketch.yaml in this folder sets all of that automatically.
 // =====================================================================
 #include "config.h"
 #include "screen.h"

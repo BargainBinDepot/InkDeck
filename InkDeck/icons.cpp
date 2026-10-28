@@ -56,22 +56,71 @@ void fromPacked(const uint8_t* src, int w, int h, int box, Icon& out) {
 static uint32_t u32(const std::vector<uint8_t>& b, size_t o) { return b[o] | b[o + 1] << 8 | b[o + 2] << 16 | (uint32_t)b[o + 3] << 24; }
 static uint16_t u16(const std::vector<uint8_t>& b, size_t o) { return b[o] | b[o + 1] << 8; }
 
-static bool decodeBmp(const String& path, std::vector<uint8_t>& px, int& w, int& h);
+// px: one level per pixel, 0 = white .. 3 = black. paletteGrey: the file is a
+// 4/8-bit BMP whose palette has light or dark grey entries.
+static bool decodeBmp(const String& path, std::vector<uint8_t>& px, int& w, int& h, bool& paletteGrey);
 
-bool loadBmp(const String& path, int box, Icon& out) {
+// Grey pictures: nearest-pixel scaling into tw x th (levels kept as they are)
+static void fitGrey(const std::vector<uint8_t>& px, int w, int h, int tw, int th, Icon& out) {
+  out.w = tw;
+  out.h = th;
+  out.grey.assign((size_t)tw * th, 0);
+  const int stride = (tw + 7) / 8;
+  out.bits.assign(stride * th, 0);
+  for (int y = 0; y < th; y++)
+    for (int x = 0; x < tw; x++) {
+      const uint8_t lv = px[(y * h / th) * w + (x * w / tw)];
+      out.grey[y * tw + x] = lv;
+      if (lv >= 2) out.bits[y * stride + (x >> 3)] |= 0x80 >> (x & 7);
+    }
+}
+
+static void toMono(std::vector<uint8_t>& px) { for (auto& v : px) v = v >= 2 ? 1 : 0; }
+
+static bool hasMidGrey(const std::vector<uint8_t>& px) {
+  for (uint8_t v : px) if (v == 1 || v == 2) return true;
+  return false;
+}
+
+bool loadBmp(const String& path, int box, Icon& out, bool allowGrey) {
   out = Icon();
   std::vector<uint8_t> px;
   int w, h;
-  if (!decodeBmp(path, px, w, h)) return false;
+  bool pg;
+  if (!decodeBmp(path, px, w, h, pg)) return false;
+  if (allowGrey && pg && hasMidGrey(px)) {
+    const int k = std::min(box / w, box / h);
+    int tw = w, th = h;
+    if (k >= 2) { tw = w * k; th = h * k; }
+    else if (w > box || h > box) {
+      if (w >= h) { tw = box; th = std::max(1, (h * box + w / 2) / w); }
+      else        { th = box; tw = std::max(1, (w * box + h / 2) / h); }
+    }
+    fitGrey(px, w, h, tw, th, out);
+    return true;
+  }
+  toMono(px);
   fit(px, w, h, box, out);
   return true;
 }
 
-bool loadBmpFit(const String& path, int boxW, int boxH, Icon& out) {
+bool loadBmpFit(const String& path, int boxW, int boxH, Icon& out, bool allowGrey) {
   out = Icon();
   std::vector<uint8_t> px;
   int w, h;
-  if (!decodeBmp(path, px, w, h)) return false;
+  bool pg;
+  if (!decodeBmp(path, px, w, h, pg)) return false;
+  if (allowGrey && pg && hasMidGrey(px)) {
+    int tw = w, th = h;
+    if (w > boxW || h > boxH) {
+      const float scale = std::min((float)boxW / w, (float)boxH / h);
+      tw = std::max(1, (int)(w * scale));
+      th = std::max(1, (int)(h * scale));
+    }
+    fitGrey(px, w, h, tw, th, out);
+    return true;
+  }
+  toMono(px);
   if (w <= boxW && h <= boxH) {                        // fits: exactly as converted
     out.w = w; out.h = h;
     const int stride = (w + 7) / 8;
@@ -88,7 +137,14 @@ bool loadBmpFit(const String& path, int boxW, int boxH, Icon& out) {
   return true;
 }
 
-static bool decodeBmp(const String& path, std::vector<uint8_t>& px, int& w, int& h) {
+// Brightness 0..255 -> level 0 (white) .. 3 (black)
+static inline uint8_t levelOf(int lum) {
+  int lv = (255 - lum + 42) / 85;
+  return (uint8_t)(lv < 0 ? 0 : lv > 3 ? 3 : lv);
+}
+
+static bool decodeBmp(const String& path, std::vector<uint8_t>& px, int& w, int& h, bool& paletteGrey) {
+  paletteGrey = false;
   auto r = Storage::openReader(path);
   if (!r || r->size() < 54 || r->size() > 300 * 1024) return false;
   std::vector<uint8_t> b;
@@ -109,15 +165,16 @@ static bool decodeBmp(const String& path, std::vector<uint8_t>& px, int& w, int&
   if (!(comp == 0 || (comp == 3 && bpp == 32))) return false;          // no RLE
   if (bpp != 1 && bpp != 4 && bpp != 8 && bpp != 24 && bpp != 32) return false;
 
-  // Palette (for 1/4/8-bit): dark palette entries are ink
-  std::vector<uint8_t> palInk;
+  // Palette (for 1/4/8-bit): each entry's level
+  std::vector<uint8_t> palLv;
   if (bpp <= 8) {
     uint32_t colors = u32(b, 46);
     if (!colors) colors = 1u << bpp;
     const size_t palOff = 14 + dibSize;
     for (uint32_t i = 0; i < colors && palOff + i * 4 + 2 < b.size(); i++) {
       const int lum = (b[palOff + i * 4 + 2] * 3 + b[palOff + i * 4 + 1] * 6 + b[palOff + i * 4]) / 10;
-      palInk.push_back(lum < 128);
+      palLv.push_back(levelOf(lum));
+      if (bpp >= 4 && (palLv.back() == 1 || palLv.back() == 2)) paletteGrey = true;
     }
   }
 
@@ -135,25 +192,30 @@ static bool decodeBmp(const String& path, std::vector<uint8_t>& px, int& w, int&
   for (int y = 0; y < h; y++) {
     const uint8_t* row = &b[dataOff + stride * (topDown ? y : h - 1 - y)];
     for (int x = 0; x < w; x++) {
-      bool ink;
+      uint8_t lv;
       if (bpp == 1 || bpp == 4 || bpp == 8) {
         int idx;
         if (bpp == 1)      idx = (row[x >> 3] >> (7 - (x & 7))) & 1;
         else if (bpp == 4) idx = (row[x >> 1] >> ((x & 1) ? 0 : 4)) & 0xF;
         else               idx = row[x];
-        ink = idx < (int)palInk.size() && palInk[idx];
+        lv = idx < (int)palLv.size() ? palLv[idx] : 0;
       } else {
         const uint8_t* p = row + x * (bpp / 8);
         const bool transparent = useAlpha && p[3] < 128;
-        ink = !transparent && (p[2] * 3 + p[1] * 6 + p[0]) / 10 < 128;
+        lv = transparent ? 0 : ((p[2] * 3 + p[1] * 6 + p[0]) / 10 < 128 ? 3 : 0);
       }
-      px[y * w + x] = ink;
+      px[y * w + x] = lv;
     }
   }
   return true;
 }
 
 void draw(const Icon& icon, int x, int y) {
+  if (!icon.grey.empty()) {                          // grey picture: every pixel, with its shade
+    for (int j = 0; j < icon.h; j++)
+      for (int i = 0; i < icon.w; i++) screen.setGrey(x + i, y + j, icon.grey[j * icon.w + i]);
+    return;
+  }
   const int stride = (icon.w + 7) / 8;
   for (int j = 0; j < icon.h; j++)
     for (int i = 0; i < icon.w; i++)

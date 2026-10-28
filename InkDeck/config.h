@@ -12,7 +12,7 @@
 //    43, 44        UART0 TX/RX
 // =====================================================================
 
-#define FW_VERSION "v0.30"
+#define FW_VERSION "v0.31"
 #define BRAND_NAME "InkDeck"
 
 // ---------------- Which display is plugged in ----------------
@@ -78,6 +78,15 @@
 
 // ---------------- E-paper-only settings ----------------
 #define EPD_ROTATION   1          // landscape; use 3 if the image is upside down
+
+// 3.7" only: pictures in 4 shades of grey (books converted with "4 greys").
+// Settings found with the InkDeck_GreyTest sketch. 0 = black and white only.
+#define EPD_GREY_PICTURES  1
+#define EPD_GREY_LIGHT     2     // frames of darkening for light grey
+#define EPD_GREY_DARK      4     // ... dark grey
+#define EPD_GREY_BLACK    22     // ... black
+#define EPD_GREY_CLEAR    18     // length of each cleaning pulse
+#define EPD_GREY_REPEAT    1     // the "x" setting in the test sketch
 
 // 2.9" BWR only: "fake temperature" speed hack.
 //   0 = stock waveform, 100 = fastest (weaker red / more ghosting)

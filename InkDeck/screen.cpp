@@ -2,13 +2,28 @@
 #include "storage.h"
 #include "keyboard.h"
 #include "sound.h"
+#include <esp_heap_caps.h>
 
 Screen screen;
 
 // ---------------------------------------------------------------------
 //  Backend-independent part
 // ---------------------------------------------------------------------
+static uint8_t* bigAlloc(size_t n) {          // PSRAM if the board has it
+  uint8_t* p = (uint8_t*)heap_caps_malloc(n, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (!p) p = (uint8_t*)malloc(n);
+  return p;
+}
+
 void Screen::begin() {
+  const size_t n = (size_t)SCREEN_W * SCREEN_H;
+  _c.grey = bigAlloc(n);
+  if (_c.grey) memset(_c.grey, NO_GREY, n);
+  else Serial.println("[screen] no memory for grey pictures: black and white only");
+  if (canShowGrey()) {
+    _greyShown = bigAlloc(n);
+    if (_greyShown) memset(_greyShown, NO_GREY, n);
+  }
   _c.setTextWrap(false);
   clear();
   backendBegin();
@@ -44,6 +59,37 @@ bool Screen::saveSettings() {
                                                  "\ndeep=" + String(_deepFull ? 1 : 0) + "\n");
 }
 
+// Black-and-white stand-in for a grey level (2x2 pattern, so grey areas
+// still look grey on panels without grey shades)
+static inline bool standIn(int x, int y, uint8_t level) {
+  switch (level) {
+    case 0:  return false;
+    case 1:  return (x & 1) && (y & 1);       // 1 in 4
+    case 2:  return ((x ^ y) & 1) != 0;       // 2 in 4
+    default: return true;
+  }
+}
+
+void Screen::setGrey(int x, int y, uint8_t level) {
+  if (x < 0 || y < 0 || x >= SCREEN_W || y >= SCREEN_H) return;
+  if (level > 3) level = 3;
+  _c.rawPixel(x, y, standIn(x, y, level));
+  if (_c.grey) {
+    _c.grey[y * SCREEN_W + x] = level;
+    _c.greyUsed = true;
+  }
+}
+
+bool Screen::needsGrey() const {
+  if (!_c.grey || !_c.greyUsed) return false;
+  const size_t n = (size_t)SCREEN_W * SCREEN_H;
+  for (size_t i = 0; i < n; i++) {
+    const uint8_t v = _c.grey[i];
+    if (v == 1 || v == 2) return true;
+  }
+  return false;
+}
+
 void Screen::text(int x, int y, const char* s, uint8_t size) {
   _c.setTextSize(size);
   _c.setTextColor(INK);
@@ -60,7 +106,11 @@ void Screen::invertRect(int x, int y, int w, int h) {
     if (j < 0 || j >= SCREEN_H) continue;
     for (int i = x; i < x + w; i++) {
       if (i < 0 || i >= SCREEN_W) continue;
-      _c.drawPixel(i, j, _c.getPixel(i, j) ? PAPER : INK);
+      if (_c.greyUsed) {
+        uint8_t& v = _c.grey[j * SCREEN_W + i];
+        if (v != NO_GREY) v = 3 - v;          // grey flips to the opposite shade
+      }
+      _c.rawPixel(i, j, !_c.getPixel(i, j));
     }
   }
 }
@@ -97,6 +147,7 @@ static uint16_t lineBuf[320];
 
 bool Screen::hasRed() const { return TARGET_HAS_RED; }
 bool Screen::hasDeepClean() const { return TARGET_PANEL == PANEL_WEACT_370_BW; }
+bool Screen::canShowGrey() const { return true; }      // the preview shows greys as colours
 void Screen::sleep() { digitalWrite(PIN_TFT_BL, LOW); }
 void Screen::wake()  { digitalWrite(PIN_TFT_BL, HIGH); }
 const char* Screen::backendName() const { return "TFT as " TARGET_NAME; }
@@ -176,6 +227,7 @@ void Screen::backendPush(bool full, bool deep) {
 
   const uint8_t* bw  = _c.getBuffer();
   const uint8_t* red = _r.getBuffer();
+  const uint8_t* grey = _c.greyUsed ? _c.grey : nullptr;
   const int bpr = (SCREEN_W + 7) / 8;
 
   tft.startWrite();
@@ -184,15 +236,18 @@ void Screen::backendPush(bool full, bool deep) {
     int y0, y1;
     rowSpan(dy, y0, y1);
     for (int dx = 0; dx < dstW; dx++) {
+      // weights in thirds: black = 3, dark grey = 2, light grey = 1
       int ink = 0, rd = 0, n = 0;
       for (int sy = y0; sy < y1; sy++) {
         const uint8_t* rowB = bw  + sy * bpr;
         const uint8_t* rowR = red + sy * bpr;
         for (int sx = colX0[dx]; sx < colX1[dx]; sx++) {
           const uint8_t m = 0x80 >> (sx & 7);
-          if (rowB[sx >> 3] & m)      ink++;
-          else if (rowR[sx >> 3] & m) rd++;
-          n++;
+          const uint8_t gv = grey ? grey[sy * SCREEN_W + sx] : NO_GREY;
+          if (gv != NO_GREY)          ink += gv;
+          else if (rowB[sx >> 3] & m) ink += 3;
+          else if (rowR[sx >> 3] & m) rd += 3;
+          n += 3;
         }
       }
       if (ink == 0 && rd == 0) lineBuf[dx] = COL_PAPER;
@@ -249,11 +304,13 @@ void Screen::backendPush(bool full, bool deep) {
   static GxEPD2_3C<GxEPD2_290_C90c_Fast, GxEPD2_290_C90c_Fast::HEIGHT>
     epd(GxEPD2_290_C90c_Fast(PIN_DISP_CS, PIN_DISP_DC, PIN_DISP_RST, PIN_EPD_BUSY));
   #define EPD_HAS_RED 1
+  #define EPD_CAN_GREY 0
   #define EPD_NAME "WeAct 2.9 BWR"
 #elif DISPLAY_PANEL == PANEL_WEACT_290_BW
   static GxEPD2_BW<GxEPD2_290_BS, GxEPD2_290_BS::HEIGHT>
     epd(GxEPD2_290_BS(PIN_DISP_CS, PIN_DISP_DC, PIN_DISP_RST, PIN_EPD_BUSY));
   #define EPD_HAS_RED 0
+  #define EPD_CAN_GREY 0
   #define EPD_NAME "WeAct 2.9 BW"
 #elif DISPLAY_PANEL == PANEL_WEACT_370_BW
   // GxEPD2's driver uses two of the UC8253's three refresh levels: partial
@@ -283,6 +340,7 @@ void Screen::backendPush(bool full, bool deep) {
     epd(GxEPD2_370_Deep(PIN_DISP_CS, PIN_DISP_DC, PIN_DISP_RST, PIN_EPD_BUSY));
   #define EPD_HAS_RED 0
   #define EPD_HAS_DEEP 1
+  #define EPD_CAN_GREY EPD_GREY_PICTURES
   #define EPD_NAME "WeAct 3.7 BW"
 #else
   #error "Unknown DISPLAY_PANEL"
@@ -294,7 +352,8 @@ void Screen::backendPush(bool full, bool deep) {
 
 bool Screen::hasRed() const { return EPD_HAS_RED; }
 bool Screen::hasDeepClean() const { return EPD_HAS_DEEP; }
-void Screen::sleep() { epd.hibernate(); }      // GxEPD2 wakes the panel again on the next display()
+bool Screen::canShowGrey() const { return EPD_CAN_GREY; }
+void Screen::sleep() { epd.hibernate(); _sleptSinceGrey = true; }   // GxEPD2 wakes the panel again on the next display()
 void Screen::wake()  {}
 const char* Screen::backendName() const { return EPD_NAME; }
 
@@ -315,7 +374,186 @@ void Screen::backendBegin() {
   Serial.printf("[screen] %s, %dx%d\n", EPD_NAME, epd.width(), epd.height());
 }
 
+#if EPD_CAN_GREY
+// ---------------------------------------------------------------------
+//  4-grey refresh for the 3.7" (UC8253), done directly over SPI with our
+//  own waveforms. GxEPD2 goes on handling every other refresh.
+//  Each pixel's grey level is sent as two bits (the panel's "old" and "new"
+//  pictures), and each of the four combinations gets its own waveform:
+//  shake clean, then darken for a set time.
+// ---------------------------------------------------------------------
+static const int NW = GxEPD2_370_GDEY037T03::WIDTH;     // 240 (controller's own layout)
+static const int NH = GxEPD2_370_GDEY037T03::HEIGHT;    // 416
+static const size_t PLANE = NW / 8 * NH;
+static uint8_t* planeOld = nullptr;
+static uint8_t* planeNew = nullptr;
+static SPISettings greySpi(10000000, MSBFIRST, SPI_MODE0);
+
+static void gCmd(uint8_t c) {
+  SPI.beginTransaction(greySpi);
+  digitalWrite(PIN_DISP_DC, LOW);
+  digitalWrite(PIN_DISP_CS, LOW);
+  SPI.transfer(c);
+  digitalWrite(PIN_DISP_CS, HIGH);
+  SPI.endTransaction();
+}
+static void gData(const uint8_t* d, size_t n) {
+  SPI.beginTransaction(greySpi);
+  digitalWrite(PIN_DISP_DC, HIGH);
+  digitalWrite(PIN_DISP_CS, LOW);
+  SPI.writeBytes(d, n);
+  digitalWrite(PIN_DISP_CS, HIGH);
+  SPI.endTransaction();
+}
+static void gData1(uint8_t d) { gData(&d, 1); }
+static uint32_t gWait(const char* what, uint32_t timeoutMs) {
+  const uint32_t t0 = millis();
+  delay(1);
+  while (digitalRead(PIN_EPD_BUSY) == LOW) {           // BUSY is LOW while working
+    if (millis() - t0 > timeoutMs) { Serial.printf("[screen] grey: %s timed out\n", what); break; }
+    kb.service();                                      // keys typed meanwhile are queued, not lost
+    Sound::loop();
+    delay(1);
+  }
+  return millis() - t0;
+}
+
+// One waveform. UC8253 layout, 7 bytes per group:
+//   [group repeat][level|frames x4][state 1 repeat][state 2 repeat]
+// levels: 0 = 0 V, 1 = VSH (darkens), 2 = VSL (lightens); VCOM 0 = VCOM_DC
+struct GPhase { uint8_t lv, fr; };
+static void gLut(uint8_t reg, const GPhase* ph, int n, int groups) {
+  uint8_t buf[56];
+  memset(buf, 0, sizeof(buf));
+  for (int g = 0; g < groups; g++) {
+    bool used = false;
+    for (int p = 0; p < 4; p++) {
+      const int i = g * 4 + p;
+      if (i < n && ph[i].fr) {
+        buf[g * 7 + 1 + p] = (uint8_t)((ph[i].lv & 3) << 6) | (ph[i].fr > 63 ? 63 : ph[i].fr);
+        used = true;
+      }
+    }
+    if (used) buf[g * 7] = buf[g * 7 + 5] = buf[g * 7 + 6] = EPD_GREY_REPEAT;
+  }
+  gCmd(reg);
+  gData(buf, groups * 7);
+}
+// balance push, shake dark, shake light, then darken for f frames (0 = white)
+static int gWave(GPhase* ph, uint8_t f) {
+  ph[0] = { 2, f };
+  ph[1] = { 1, EPD_GREY_CLEAR };
+  ph[2] = { 2, EPD_GREY_CLEAR };
+  ph[3] = { 1, f };
+  return 4;
+}
+
+// Landscape pixel -> controller RAM position (same mapping as GxEPD2's rotation)
+static inline void toNative(int x, int y, int& nx, int& ny) {
+#if EPD_ROTATION == 1
+  nx = NW - 1 - y; ny = x;
+#elif EPD_ROTATION == 3
+  nx = y; ny = NH - 1 - x;
+#elif EPD_ROTATION == 2
+  nx = NW - 1 - x; ny = NH - 1 - y;
+#else
+  nx = x; ny = y;
+#endif
+}
+
+static void greyRefresh(const uint8_t* bw, const uint8_t* grey) {
+  if (!planeOld) { planeOld = (uint8_t*)malloc(PLANE); planeNew = (uint8_t*)malloc(PLANE); }
+  if (!planeOld || !planeNew) { Serial.println("[screen] grey: out of memory"); return; }
+
+  // 1. Build the two bit-planes. Bits are 1 = white.
+  //    white = old 1 new 1, light = old 0 new 1, dark = old 1 new 0, black = 0 0
+  memset(planeOld, 0, PLANE);
+  memset(planeNew, 0, PLANE);
+  const int bpr = (SCREEN_W + 7) / 8;
+  for (int y = 0; y < SCREEN_H; y++) {
+    for (int x = 0; x < SCREEN_W; x++) {
+      uint8_t lv = grey[y * SCREEN_W + x];
+      if (lv == NO_GREY) lv = (bw[y * bpr + (x >> 3)] & (0x80 >> (x & 7))) ? 3 : 0;
+      int nx, ny;
+      toNative(x, y, nx, ny);
+      const size_t i = (size_t)ny * (NW / 8) + nx / 8;
+      const uint8_t m = 0x80 >> (nx & 7);
+      if (lv == 0 || lv == 2) planeOld[i] |= m;
+      if (lv == 0 || lv == 1) planeNew[i] |= m;
+    }
+  }
+
+  // 2. Wake the controller and load our waveforms
+  digitalWrite(PIN_DISP_RST, HIGH); delay(10);
+  digitalWrite(PIN_DISP_RST, LOW);  delay(10);
+  digitalWrite(PIN_DISP_RST, HIGH); delay(10);
+  gWait("reset", 1000);
+  gCmd(0x00); gData1(0x1e); gData1(0x0d);              // soft reset
+  delay(1);
+  gCmd(0x00); gData1(0x3f); gData1(0x0d);              // black/white mode, waveforms from registers
+  gCmd(0x30); gData1(0x09);                            // 50 Hz frames
+  gCmd(0x50); gData1(0xD7);                            // border left alone
+  GPhase w[4], lt[4], dk[4], bk[4], vc[4];
+  gWave(w, 0);
+  gWave(lt, EPD_GREY_LIGHT);
+  gWave(dk, EPD_GREY_DARK);
+  gWave(bk, EPD_GREY_BLACK);
+  for (int i = 0; i < 4; i++) vc[i] = { 0, bk[i].fr };
+  gLut(0x20, vc, 4, 8);                                // VCOM
+  gLut(0x21, w,  4, 6);                                // old 1 new 1 -> white
+  gLut(0x22, lt, 4, 8);                                // old 0 new 1 -> light grey
+  gLut(0x23, dk, 4, 8);                                // old 1 new 0 -> dark grey
+  gLut(0x24, bk, 4, 8);                                // old 0 new 0 -> black
+
+  // 3. Send the picture and refresh
+  gCmd(0x10); gData(planeOld, PLANE);
+  gCmd(0x13); gData(planeNew, PLANE);
+  gCmd(0x04); gWait("power on", 1000);
+  gCmd(0x12);
+  const uint32_t ms = gWait("grey refresh", 15000);
+  gCmd(0x02); gWait("power off", 1000);
+  Serial.printf("[screen] grey refresh %lu ms\n", (unsigned long)ms);
+
+  // 4. Hand the panel back to GxEPD2: its own waveforms again, and both of the
+  //    controller's pictures set to the black/white version, so the next fast
+  //    refresh only touches pixels that really change (the greys stay put).
+  gCmd(0x00); gData1(0x1e); gData1(0x0d);
+  delay(1);
+  gCmd(0x00); gData1(0x1f); gData1(0x0d);
+  memset(planeOld, 0, PLANE);
+  for (int y = 0; y < SCREEN_H; y++)
+    for (int x = 0; x < SCREEN_W; x++)
+      if (!(bw[y * bpr + (x >> 3)] & (0x80 >> (x & 7)))) {
+        int nx, ny;
+        toNative(x, y, nx, ny);
+        planeOld[(size_t)ny * (NW / 8) + nx / 8] |= 0x80 >> (nx & 7);
+      }
+  gCmd(0x10); gData(planeOld, PLANE);
+  gCmd(0x13); gData(planeOld, PLANE);
+}
+#endif
+
 void Screen::backendPush(bool full, bool deep) {
+#if EPD_CAN_GREY
+  // Greys need their own (slower, flashing) refresh, but only when they're new
+  // or changed: other updates use the normal fast refresh around them. A
+  // refresh that would be full anyway also redraws the greys (it cleans too).
+  const bool wantGrey = needsGrey();
+  const size_t n = (size_t)SCREEN_W * SCREEN_H;
+  if (wantGrey && _greyShown) {
+    if (full || !_greyOnPanel || _sleptSinceGrey || memcmp(_c.grey, _greyShown, n) != 0) {
+      greyRefresh(_c.getBuffer(), _c.grey);
+      memcpy(_greyShown, _c.grey, n);
+      _greyOnPanel = true;
+      _sleptSinceGrey = false;
+      return;
+    }
+  } else if (_greyOnPanel) {
+    full = true;                    // the last greys must be cleaned off properly
+    _greyOnPanel = false;
+    if (_greyShown) memset(_greyShown, NO_GREY, n);
+  }
+#endif
 #if EPD_HAS_DEEP
   epd.epd2.deepClean = deep;
 #else

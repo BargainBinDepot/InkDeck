@@ -11,6 +11,7 @@
 struct Icon {
   int w = 0, h = 0;
   std::vector<uint8_t> bits;      // packed rows, MSB = leftmost, 1 = ink
+  std::vector<uint8_t> grey;      // optional: one level per pixel, 0 white .. 3 black
   bool valid() const { return w > 0 && h > 0; }
 };
 
@@ -20,10 +21,12 @@ namespace Icons {
 void fromPacked(const uint8_t* src, int w, int h, int box, Icon& out);
 
 // Load a BMP file from the SD card, fitted into box x box. False if unusable.
-bool loadBmp(const String& path, int box, Icon& out);
+// allowGrey: a 4/8-bit BMP with grey palette entries keeps its grey shades
+// (book pictures); otherwise everything is black or white.
+bool loadBmp(const String& path, int box, Icon& out, bool allowGrey = false);
 
 // Load a BMP fitted inside boxW x boxH: shrunk if bigger, never enlarged
-bool loadBmpFit(const String& path, int boxW, int boxH, Icon& out);
+bool loadBmpFit(const String& path, int boxW, int boxH, Icon& out, bool allowGrey = false);
 
 // Draw with the top-left corner at x,y
 void draw(const Icon& icon, int x, int y);

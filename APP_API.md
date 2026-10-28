@@ -93,6 +93,7 @@ Drawing uses a 1-bit screen: everything is black ink on white paper. Coordinates
 | `screen.wrap(str [, cols])` | Word-wrap text into a table of lines (default `screen.cols` wide) |
 | `screen.image(name, x, y [, size])` | Draw a BMP from the app's folder with its top-left corner at x,y. `size` is the square box it's fitted into: small images are enlarged by whole numbers (a 40×40 image becomes 80×80 in an 80 box), big ones shrunk. Default: its own size. Returns the drawn width and height, or `false` if it can't be read. |
 | `screen.image(name, x, y, maxW, maxH)` | Fit a BMP inside a rectangle: shrunk if it's bigger, never enlarged (for pictures in documents). Images are cached while the app runs; the oldest are dropped past 16. |
+| *grey shades* | A 4-bit or 8-bit BMP whose palette has greys keeps 4 shades (white, light grey, dark grey, black) on the 3.7" e-paper (firmware v0.31+) and the TFT preview; other panels show a dot pattern. A grey picture costs one slower, flashing refresh when it first appears. Anything drawn over it later turns those pixels back into plain black and white. |
 | `screen.redraw([full])` | Ask for a redraw. `true` = the whole screen changed: the firmware does a full e-paper refresh if enough partial ones have built up since the last, otherwise a fast partial one |
 | `screen.font([name])` | Switch the font used by `text`/`center`/`textwidth`; returns character width, line height and ascent (baseline distance from the top of a line). No name = the system font. |
 

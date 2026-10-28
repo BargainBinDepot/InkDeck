@@ -1,0 +1,1 @@
+default_fqbn: esp32:esp32:esp32s3:CDCOnBoot=cdc,CPUFreq=240,FlashMode=qio,FlashSize=16M,PartitionScheme=app3M_fat9M_16MB,PSRAM=opi,USBMode=hwcdc,UploadMode=default,UploadSpeed=921600

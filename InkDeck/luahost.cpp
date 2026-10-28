@@ -279,6 +279,8 @@ static int l_redraw(lua_State* Ls) {
 // numbers, big ones shrunk); default is the image's own size.
 // screen.image(name, x, y, maxW, maxH) fits it inside that rectangle,
 // shrinking if needed but never enlarging (book pictures).
+// 4/8-bit BMPs with grey palette entries keep their grey shades (shown in
+// 4 greys on the 3.7" e-paper and the TFT preview, as a pattern elsewhere).
 // Images are loaded once and cached while the app runs (the oldest are
 // dropped past IMAGE_CACHE_MAX, so a picture-heavy book can't fill memory).
 static std::map<String, Icon> imageCache;
@@ -298,8 +300,8 @@ static int l_image(lua_State* Ls) {
   auto it = imageCache.find(key);
   if (it == imageCache.end()) {
     Icon ic;
-    const bool ok = boxH > 0 ? Icons::loadBmpFit(p, boxW, boxH, ic)
-                             : Icons::loadBmp(p, boxW > 0 ? boxW : 512, ic);
+    const bool ok = boxH > 0 ? Icons::loadBmpFit(p, boxW, boxH, ic, true)
+                             : Icons::loadBmp(p, boxW > 0 ? boxW : 512, ic, true);
     if (!ok) { lua_pushboolean(Ls, 0); return 1; }
     if (imageOrder.size() >= IMAGE_CACHE_MAX) { imageCache.erase(imageOrder.front()); imageOrder.erase(imageOrder.begin()); }
     it = imageCache.emplace(key, ic).first;
