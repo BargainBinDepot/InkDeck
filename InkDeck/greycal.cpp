@@ -180,6 +180,9 @@ const char* hint() { return "Up/Dn pick  Lt/Rt change  Esc back"; }
 
 void leave() { screen.setGrey8(false); }
 
+// Steps go finely at first, then faster (they run up to 252 frames)
+static int stepBy(uint8_t v) { return v < 16 ? 1 : v < 48 ? 4 : 12; }
+
 void change(int sel, int dir) {
   const int id = rowAt(sel);
   auto bump = [&](uint8_t& v, int step, int lo, int hi) { v = (uint8_t)constrain((int)v + dir * step, lo, hi); };
@@ -189,8 +192,8 @@ void change(int sel, int dir) {
     switch (id) {
       case R_LIGHT: bump(t.light, 1, 1, 40); break;
       case R_DARK:  bump(t.dark, 1, 1, 50); break;
-      case R_STEP1: bump(t.step1, 1, 1, 63); break;
-      case R_STEP2: bump(t.step2, 1, 1, 63); break;
+      case R_STEP1: bump(t.step1, stepBy(t.step1), 1, 252); break;   // up to 4 phases of 63
+      case R_STEP2: bump(t.step2, stepBy(t.step2), 1, 252); break;
     }
     screen.setGrey8Timing(t);
     return;

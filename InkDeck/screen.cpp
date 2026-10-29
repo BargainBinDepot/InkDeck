@@ -98,8 +98,8 @@ void Screen::loadSettings() {
   num("greyrepeat=", gT.repeat, 0, 1);
   num("g8light=", g8.light, 1, 63);
   num("g8dark=", g8.dark, 1, 63);
-  num("g8step1=", g8.step1, 1, 63);
-  num("g8step2=", g8.step2, 1, 63);
+  num("g8step1=", g8.step1, 1, 252);
+  num("g8step2=", g8.step2, 1, 252);
   uint8_t fm = _fastMode;
   num("fast=", fm, 0, 2);
   _fastMode = (FastMode)fm;
@@ -705,14 +705,19 @@ static void greyRefresh(const uint8_t* bw, const uint8_t* grey, bool eight) {
   if (eight) {
     greyPlanes(bw, grey, true, 2);
     gCmd(0x30); gData1(0x1F);                          // 200 Hz: 5 ms frames, for fine steps
+    // A phase holds at most 63 frames, so a longer step is spread over up to 4
+    auto split = [](uint8_t lv, int f, GPhase* ph) {
+      for (int i = 0; i < 4; i++) { const int n = std::min(f, 63); ph[i] = { lv, (uint8_t)n }; f -= n; }
+    };
     const GPhase none[1] = { { 0, 0 } };
-    const GPhase s1[1] = { { 1, g8.step1 } };
-    const GPhase s2[1] = { { 1, g8.step2 } };
-    const GPhase vc[1] = { { 0, std::max(g8.step1, g8.step2) } };
-    gLut(0x20, vc, 1, 8);
+    GPhase s1[4], s2[4], vc[4];
+    split(1, g8.step1, s1);
+    split(1, g8.step2, s2);
+    split(0, std::max(g8.step1, g8.step2), vc);
+    gLut(0x20, vc, 4, 8);
     gLut(0x21, none, 1, 6);                            // levels 0, 2, 4, 7: as they are
-    gLut(0x22, s1, 1, 8);                              // levels 1, 3, 5: one step darker
-    gLut(0x23, s2, 1, 8);                              // level 6: two steps darker
+    gLut(0x22, s1, 4, 8);                              // levels 1, 3, 5: one step darker
+    gLut(0x23, s2, 4, 8);                              // level 6: two steps darker
     gLut(0x24, none, 1, 8);
     gCmd(0x10); gData(planeOld, PLANE);
     gCmd(0x13); gData(planeNew, PLANE);

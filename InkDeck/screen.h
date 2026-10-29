@@ -101,7 +101,7 @@ public:
   // levels 0 (white) .. 7 (black). The 4-grey refresh lays down white, light,
   // dark or black, then a second short pass darkens the in-between levels a
   // step (1 / 3 / 5) or two (6). Timings: light/dark in 20 ms frames like
-  // the 4-grey ones, the steps in 5 ms frames.
+  // the 4-grey ones, the steps in 5 ms frames (up to 252).
   struct Grey8Timing { uint8_t light, dark, step1, step2; };
   static Grey8Timing grey8Defaults() { return { EPD_GREY8_LIGHT, EPD_GREY8_DARK, EPD_GREY8_STEP1, EPD_GREY8_STEP2 }; }
   Grey8Timing grey8Timing() const;
