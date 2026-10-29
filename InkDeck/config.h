@@ -12,7 +12,7 @@
 //    43, 44        UART0 TX/RX
 // =====================================================================
 
-#define FW_VERSION "v0.32"
+#define FW_VERSION "v0.33"
 #define BRAND_NAME "InkDeck"
 
 // ---------------- Which display is plugged in ----------------
@@ -88,6 +88,13 @@
 #define EPD_GREY_BLACK    22     // ... black
 #define EPD_GREY_CLEAR    18     // length of each cleaning pulse
 #define EPD_GREY_REPEAT    1     // the "x" setting in the test sketch
+
+// 3.7" only: fast refresh (Settings > Fast refresh, off by default). Changed
+// pixels get one short push with InkDeck's own waveform, unchanged ones none,
+// and the panel stays powered while you type. Faster than the normal partial
+// refresh, with more ghosting (the "Full refresh after" setting cleans it up).
+#define FAST_FRAMES        10    // default strength: frames of 12.5 ms (80 Hz) per change
+#define FAST_IDLE_MS     1000    // power the panel down after this long without a fast refresh
 
 // 2.9" BWR only: "fake temperature" speed hack.
 //   0 = stock waveform, 100 = fastest (weaker red / more ghosting)

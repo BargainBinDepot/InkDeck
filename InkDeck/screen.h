@@ -97,6 +97,19 @@ public:
   bool setGreyTiming(const GreyTiming& t);   // saved; the next refresh redraws the greys with it
   void redoGrey() { _greyOnPanel = false; }  // next refresh redraws the greys even if they didn't change
 
+  // Fast refresh (3.7" e-paper). Mode: off (default), only while an app asks
+  // for it (screen.fast(true) in Lua, e.g. an editor while typing), or always.
+  // Only plain partial refreshes go fast; greys, full and app-switch
+  // refreshes keep their own.
+  enum FastMode : uint8_t { FAST_OFF, FAST_APPS, FAST_ALWAYS };
+  bool hasFastRefresh() const;
+  FastMode fastMode() const      { return _fastMode; }
+  bool setFastMode(FastMode m)   { _fastMode = m; return saveSettings(); }
+  uint8_t fastFrames() const     { return _fastFrames; }
+  bool setFastFrames(uint8_t f)  { _fastFrames = f; _fastLutDirty = true; return saveSettings(); }
+  void setFastHint(bool on)      { _fastHint = on; }     // an app is typing-heavy right now
+  void loop();                   // call often: powers the panel down after a fast-refresh burst
+
   // Push canvases to the panel (see Refresh above). Any refresh is promoted
   // to a full one after fullEvery() partials in a row.
   void refresh(Refresh mode);
@@ -137,6 +150,12 @@ private:
   bool       _greyOnPanel = false;
   bool       _sleptSinceGrey = false;  // panel was put to sleep: redo greys on the next refresh
   bool needsGrey() const;              // any light/dark grey pixels to show?
+  FastMode   _fastMode = FAST_OFF;
+  uint8_t    _fastFrames = FAST_FRAMES;
+  bool       _fastHint = false;
+  bool       _fastNow = false;         // this refresh goes the fast way
+  bool       _fastLutDirty = false;    // strength changed: reload the waveforms
+  uint8_t*   _lastShown = nullptr;     // black layer as last sent to the panel (fast refresh needs it)
   GFXcanvas1 _r{SCREEN_W, SCREEN_H};
   uint32_t _partials = 0;
   uint32_t _fulls = 0;

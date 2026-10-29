@@ -313,11 +313,20 @@ static int l_image(lua_State* Ls) {
   return 2;
 }
 
+// screen.fast(on): ask for fast refreshes while typing (an editor). Only used
+// when Settings > Fast refresh is "In editors"; off again when the app closes.
+// Returns whether this screen can do fast refreshes at all.
+static int l_fast(lua_State* Ls) {
+  screen.setFastHint(lua_toboolean(Ls, 1));
+  lua_pushboolean(Ls, screen.hasFastRefresh());
+  return 1;
+}
+
 static const luaL_Reg screenLib[] = {
   { "text", l_text }, { "center", l_center }, { "textwidth", l_textwidth },
   { "rect", l_rect }, { "line", l_line }, { "circle", l_circle }, { "pixel", l_pixel },
   { "invert", l_invert }, { "wrap", l_wrap }, { "redraw", l_redraw }, { "font", l_font },
-  { "image", l_image },
+  { "image", l_image }, { "fast", l_fast },
   { nullptr, nullptr }
 };
 
@@ -705,6 +714,7 @@ void close() {
   imageOrder.clear();
   Power::keepAwake(false);                     // an app's stay-awake request ends with the app
   Sound::stop();                               // and so does its tune
+  screen.setFastHint(false);                   // and its fast refresh request
   if (L) {
     lua_close(L);
     L = nullptr;

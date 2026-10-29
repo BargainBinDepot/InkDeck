@@ -1,5 +1,5 @@
 // =====================================================================
-//  InkDeck firmware v0.32
+//  InkDeck firmware v0.33
 //  ESP32-S3 + CardKB + e-paper (or the ST7789 TFT preview)
 //
 //  v0.1   display HAL, CardKB input, paged launcher, app framework
@@ -70,6 +70,10 @@
 //         on the TFT preview; a dot pattern on other panels.
 //  v0.32  Settings > Grey calibration: test picture (shades, ramps, a ball in
 //         each eReader picture style) with the grey timings adjustable live.
+//  v0.33  Fast refresh (3.7" e-paper, off by default): Settings > Fast refresh
+//         Off / In editors / Always, and Fast strength. Changed pixels get one
+//         short push with the panel kept powered (~100-200 ms a keystroke,
+//         more ghosting; a full refresh clears it). Lua: screen.fast(on).
 //
 //  Arduino IDE (ESP32S3 Dev Module): Flash Size 16MB, Partition Scheme
 //  "16M Flash (3MB APP/9.9MB FATFS)", PSRAM "OPI PSRAM", USB CDC On Boot
@@ -129,6 +133,7 @@ void loop() {
   AppMgr::tick();
   Battery::loop();
   Sound::loop();
+  screen.loop();                 // powers the panel down after a fast-refresh burst
 
   static bool markedGood = false;              // ran 20 s without crashing: keep this firmware
   if (!markedGood && millis() > 20000) { Ota::markGood(); markedGood = true; }

@@ -610,6 +610,7 @@ local function drawDelete()
 end
 
 function draw()
+  if screen.fast then screen.fast(mode == "edit") end   -- quicker refreshes while typing (Settings > Fast refresh)
   if mode == "lists" then drawLists()
   elseif mode == "list" or mode == "edit" then drawList()
   elseif mode == "help" then drawHelp()

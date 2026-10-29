@@ -1240,15 +1240,20 @@ static String sysMsg;
 
 static const char* SYS_MENU[]     = { "About this device", "Settings" };
 // Settings rows; the list shown depends on the panel and firmware (see settingsRows)
-enum SetRow { SET_CLOCK, SET_SLEEP, SET_EVERY, SET_SWITCH, SET_STYLE, SET_CLEAN, SET_ROLLBACK, SET_SOUND, SET_CLICK, SET_GREY };
+enum SetRow { SET_CLOCK, SET_SLEEP, SET_EVERY, SET_SWITCH, SET_STYLE, SET_CLEAN, SET_ROLLBACK, SET_SOUND, SET_CLICK, SET_GREY,
+             SET_FAST, SET_FASTSTR };
 static const char* SYS_SETTINGS[] = { "Clock", "Sleep after", "Full refresh after", "Full on app switch",
                                       "Full refresh type", "Deep clean screen", "Previous firmware", "Sound",
-                                      "Arrow key click", "Grey calibration" };
+                                      "Arrow key click", "Grey calibration", "Fast refresh", "Fast strength" };
 static std::vector<int> settingsRows() {
   std::vector<int> r = { SET_CLOCK, SET_SLEEP };
   if (Sound::hasBuzzer()) r.insert(r.end(), { SET_SOUND, SET_CLICK });
   r.insert(r.end(), { SET_EVERY, SET_SWITCH });
   if (screen.hasDeepClean()) r.push_back(SET_STYLE);
+  if (screen.hasFastRefresh()) {
+    r.push_back(SET_FAST);
+    if (screen.fastMode() != Screen::FAST_OFF) r.push_back(SET_FASTSTR);
+  }
   if (screen.canShowGrey()) r.push_back(SET_GREY);
   r.push_back(SET_CLEAN);
   if (Ota::canRollBack()) r.push_back(SET_ROLLBACK);
@@ -1258,6 +1263,11 @@ static bool sysRollAsk = false, sysRollYes = false;
 static const uint32_t SLEEP_CHOICES[] = { 60, 120, 300, 600, 0 };      // seconds; 0 = never
 // Partial refreshes before a full one (Screen::REFRESH_NEVER = never)
 static const uint16_t FULL_EVERY_CHOICES[]  = { 25, 50, 100, 200, 500, Screen::REFRESH_NEVER };
+// Fast refresh strength: 12.5 ms frames per change (more = blacker, slower)
+static const uint8_t FAST_FRAME_CHOICES[] = { 6, 8, 10, 12, 16 };
+static const char* fastModeLabel(Screen::FastMode m) {
+  return m == Screen::FAST_ALWAYS ? "Always" : m == Screen::FAST_APPS ? "In editors" : "Off";
+}
 static const uint16_t FULL_SWITCH_CHOICES[] = { 0, 10, 30, 100, Screen::REFRESH_NEVER };
 
 template <size_t N>
@@ -1345,6 +1355,14 @@ static void sysActivate() {
         case SET_SOUND:  Sound::setEnabled(!Sound::enabled()); Sound::beep(); break;   // a beep to show it's on
         case SET_CLICK:  Sound::setClicks(!Sound::clicks()); break;
         case SET_GREY:   sysGo(SysScreen::Grey); return;
+        case SET_FAST:   screen.setFastMode((Screen::FastMode)((screen.fastMode() + 1) % 3)); break;
+        case SET_FASTSTR: {
+          const int n = sizeof(FAST_FRAME_CHOICES);
+          int i = 0;
+          while (i < n && FAST_FRAME_CHOICES[i] != screen.fastFrames()) i++;
+          screen.setFastFrames(FAST_FRAME_CHOICES[(i + 1) % n]);
+          break;
+        }
         case SET_CLEAN:  sysMsg = "Screen cleaned"; AppMgr::requestRedraw(Refresh::Clean); return;
         case SET_ROLLBACK: sysRollAsk = true; sysRollYes = false; break;
       }
@@ -1460,6 +1478,8 @@ static void sysDrawScreen() {
           case SET_SOUND:  right = Sound::enabled() ? "On" : "Off"; break;
           case SET_CLICK:  right = !Sound::enabled() ? "(sound off)" : Sound::clicks() ? "On" : "Off"; break;
           case SET_GREY:   right = ">"; break;
+          case SET_FAST:   right = fastModeLabel(screen.fastMode()); break;
+          case SET_FASTSTR: right = String(screen.fastFrames() * 25 / 2) + " ms"; break;
         }
         items.push_back(menuRow(SYS_SETTINGS[id], right));
       }
