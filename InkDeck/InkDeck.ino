@@ -1,5 +1,5 @@
 // =====================================================================
-//  InkDeck firmware v0.34
+//  InkDeck firmware v0.35
 //  ESP32-S3 + CardKB + e-paper (or the ST7789 TFT preview)
 //
 //  v0.1   display HAL, CardKB input, paged launcher, app framework
@@ -79,6 +79,10 @@
 //         refresh, then a short second pass (5 ms frames) darkens the
 //         in-between levels; its own Light/Dark/Step 1/Step 2 timings. The
 //         test picture puts 8 against 4 greys. Pictures still use 4.
+//  v0.35  Fast refresh ghosting: only refreshes right after a key go fast
+//         (not the clock or battery icon), and when a burst ends every pixel
+//         gets a clean-up push to its own colour. After a grey refresh GxEPD2
+//         knows the panel is awake (it could reset it and lose its picture).
 //
 //  Arduino IDE (ESP32S3 Dev Module): Flash Size 16MB, Partition Scheme
 //  "16M Flash (3MB APP/9.9MB FATFS)", PSRAM "OPI PSRAM", USB CDC On Boot
@@ -132,6 +136,7 @@ void loop() {
   // Every key typed meanwhile (e.g. during the last refresh), then one redraw for all of them
   while (uint8_t key = kb.poll()) {
     Power::noteInput();
+    screen.noteKey();
     if (key == K_UP || key == K_DOWN || key == K_LEFT || key == K_RIGHT) Sound::click();
     AppMgr::handleKey(key);
   }

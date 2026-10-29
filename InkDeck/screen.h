@@ -121,6 +121,7 @@ public:
   uint8_t fastFrames() const     { return _fastFrames; }
   bool setFastFrames(uint8_t f)  { _fastFrames = f; _fastLutDirty = true; return saveSettings(); }
   void setFastHint(bool on)      { _fastHint = on; }     // an app is typing-heavy right now
+  void noteKey()                 { _lastKeyMs = millis(); }   // a key was pressed (only typing goes fast)
   void loop();                   // call often: powers the panel down after a fast-refresh burst
 
   // Push canvases to the panel (see Refresh above). Any refresh is promoted
@@ -169,6 +170,7 @@ private:
   bool       _fastHint = false;
   bool       _fastNow = false;         // this refresh goes the fast way
   bool       _fastLutDirty = false;    // strength changed: reload the waveforms
+  uint32_t   _lastKeyMs = 0;
   uint8_t*   _lastShown = nullptr;     // black layer as last sent to the panel (fast refresh needs it)
   GFXcanvas1 _r{SCREEN_W, SCREEN_H};
   uint32_t _partials = 0;

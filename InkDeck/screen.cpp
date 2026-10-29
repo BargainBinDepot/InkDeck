@@ -39,7 +39,7 @@ void Screen::refresh(Refresh mode) {
            || (_fullEvery != REFRESH_NEVER && _partials >= _fullEvery)
            || (mode == Refresh::Full && _fullOnSwitch != REFRESH_NEVER && _partials >= _fullOnSwitch);
   const bool deep = full && hasDeepClean() && (mode == Refresh::Clean || _deepFull);
-  _fastNow = !full && mode == Refresh::Partial && _lastShown &&
+  _fastNow = !full && mode == Refresh::Partial && _lastShown && millis() - _lastKeyMs < FAST_KEY_MS &&
              (_fastMode == FAST_ALWAYS || (_fastMode == FAST_APPS && _fastHint));
   uint32_t t = millis();
   backendPush(full, deep);
@@ -428,7 +428,7 @@ bool Screen::hasDeepClean() const { return EPD_HAS_DEEP; }
 bool Screen::canShowGrey() const { return EPD_CAN_GREY; }
 bool Screen::hasGreyWaveforms() const { return EPD_CAN_GREY; }
 #if DISPLAY_PANEL == PANEL_WEACT_370_BW
-static void fastEnd();              // below, with the fast refresh
+static void fastEnd(bool settle = true);   // below, with the fast refresh
 #endif
 void Screen::sleep() {
 #if DISPLAY_PANEL == PANEL_WEACT_370_BW
@@ -626,8 +626,28 @@ static void fastFrame(const uint8_t* bw) {
   fastLast = millis();
 }
 
-static void fastEnd() {
+// End of a burst: first push every pixel fully to the colour it shows (no
+// flash, nothing changes colour), as the single short pushes leave some
+// half-way and that builds up as ghosting. Skipped when a full refresh follows.
+static void fastSettle() {
+  const GPhase none[1] = { { 0, 0 } };
+  const GPhase toWhite[1] = { { 2, FAST_SETTLE } };
+  const GPhase toBlack[1] = { { 1, FAST_SETTLE } };
+  const GPhase vcom[1] = { { 0, FAST_SETTLE } };
+  gLut(0x20, vcom, 1, 8, 1);
+  gLut(0x21, toWhite, 1, 6, 1);                        // white: pushed whiter
+  gLut(0x22, none, 1, 8, 1);
+  gLut(0x23, none, 1, 8, 1);
+  gLut(0x24, toBlack, 1, 8, 1);                        // black: pushed blacker
+  gCmd(0x10); gData(planeOld, PLANE);                  // both pictures = what's shown
+  gCmd(0x13); gData(planeOld, PLANE);
+  gCmd(0x12);
+  gWait("fast settle", 3000);
+}
+
+static void fastEnd(bool settle) {
   if (!fastOn) return;
+  if (settle) fastSettle();
   gCmd(0x02); gWait("power off", 1000);
   handBack(planeOld);
   fastOn = false;
@@ -743,6 +763,7 @@ static void greyRefresh(const uint8_t* bw, const uint8_t* grey, bool eight) {
       }
   gCmd(0x10); gData(planeOld, PLANE);
   gCmd(0x13); gData(planeOld, PLANE);
+  epd.epd2.markAwake();             // (it may have been asleep: GxEPD2 must not reset it now)
 }
 #endif  // EPD_CAN_GREY
 #endif  // 3.7"
@@ -767,7 +788,7 @@ void Screen::backendPush(bool full, bool deep) {
     fastFrame(_c.getBuffer());
     return;
   }
-  fastEnd();                        // anything else: back to GxEPD2 first
+  fastEnd(!full);                   // anything else: back to GxEPD2 first (a full refresh cleans anyway)
 #endif
 #if EPD_CAN_GREY
   // Greys need their own (slower, flashing) refresh, but only when they're new

@@ -12,7 +12,7 @@
 //    43, 44        UART0 TX/RX
 // =====================================================================
 
-#define FW_VERSION "v0.34"
+#define FW_VERSION "v0.35"
 #define BRAND_NAME "InkDeck"
 
 // ---------------- Which display is plugged in ----------------
@@ -101,6 +101,9 @@
 #define FAST_FRAMES         7    // default strength: frames of 12.5 ms (80 Hz) per change
                                  // (7 = preset C in the GreyTest sketch, the best looking)
 #define FAST_IDLE_MS     1000    // power the panel down after this long without a fast refresh
+#define FAST_KEY_MS      1500    // only refreshes this soon after a key go fast (not the clock etc.)
+#define FAST_SETTLE       16     // frames (12.5 ms) of the clean-up push when a burst ends: every
+                                 // pixel pushed fully to its own colour, so half-driven ones don't ghost
 
 // 2.9" BWR only: "fake temperature" speed hack.
 //   0 = stock waveform, 100 = fastest (weaker red / more ghosting)
