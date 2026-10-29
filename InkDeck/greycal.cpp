@@ -222,6 +222,19 @@ void draw(int sel) {
   GFXcanvas1& g = screen.g();
   int y = BODY_Y + 3 * T;
 
+  // Which swatches the selected row adjusts: their labels are shown inverted
+  const int selId = rowAt(sel);
+  auto adjusts = [&](int i) {
+    switch (selId) {
+      case R_LIGHT: return eight ? i == 2 : i == 1;
+      case R_DARK:  return eight ? i == 4 : i == 2;
+      case R_STEP1: return i == 1 || i == 3 || i == 5;
+      case R_STEP2: return i == 6;
+      case R_BLACK: return i == top;
+      default:      return false;
+    }
+  };
+
   // The shades, white to black
   const int n = top + 1, gap = eight ? T : 2 * T;
   const int sw = (PIC_W - (n - 1) * gap) / n, sh = 12 * T;
@@ -232,6 +245,7 @@ void draw(int sel) {
     g.drawRect(x, y, sw, sh, INK);
     const String label = eight ? String(i) : String(SHADES[i]);
     screen.textCentered(x + sw / 2, y + sh + T, label.c_str(), T);
+    if (adjusts(i)) screen.invertRect(x, y + sh, sw, LINE_H);
   }
   y += sh + LINE_H + T;
 
@@ -287,7 +301,11 @@ void draw(int sel) {
                                   t.clear == d.clear && t.repeat == d.repeat);
   const char* status = !screen.hasGreyWaveforms() ? "(TFT: none)" : isDefault ? "(defaults)" : "(saved)";
   std::vector<const char*> notes;
-  if (eight) notes = { status, "steps 5ms" };
+  // With 8 shades the row names don't say which swatch: spell it out
+  const char* what = selId == R_LIGHT ? "sets 2" : selId == R_DARK ? "sets 4" :
+                     selId == R_STEP1 ? "sets 1 3 5" : selId == R_STEP2 ? "sets 6" :
+                     selId == R_BLACK ? "sets 7" : selId == R_CLEAR ? "all shades" : "";
+  if (eight) notes = { what, status, "steps 5ms" };
   else       notes = { "20ms frames", "more=darker", status };
   for (const char* line : notes) {
     if (ny + LINE_H > SCREEN_H - LINE_H) break;        // keep clear of the hint line
