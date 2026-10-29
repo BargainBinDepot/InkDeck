@@ -12,7 +12,7 @@
 //    43, 44        UART0 TX/RX
 // =====================================================================
 
-#define FW_VERSION "v0.35"
+#define FW_VERSION "v0.36"
 #define BRAND_NAME "InkDeck"
 
 // ---------------- Which display is plugged in ----------------

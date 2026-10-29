@@ -39,16 +39,25 @@ void Screen::refresh(Refresh mode) {
            || (_fullEvery != REFRESH_NEVER && _partials >= _fullEvery)
            || (mode == Refresh::Full && _fullOnSwitch != REFRESH_NEVER && _partials >= _fullOnSwitch);
   const bool deep = full && hasDeepClean() && (mode == Refresh::Clean || _deepFull);
+  // Nothing changed (no greys involved either): don't touch the panel. Every
+  // partial refresh nudges all pixels a little, so pointless ones add ghosting.
+  // (Never the first refresh: the panel shows whatever it had before.)
+  const size_t bytes = ((SCREEN_W + 7) / 8) * SCREEN_H;
+  if (!full && _lastShown && (_fulls || _partials) && !_greyOnPanel && !needsGrey() && memcmp(_lastShown, _c.getBuffer(), bytes) == 0) {
+    _skipped++;
+    return;
+  }
   _fastNow = !full && mode == Refresh::Partial && _lastShown && millis() - _lastKeyMs < FAST_KEY_MS &&
              (_fastMode == FAST_ALWAYS || (_fastMode == FAST_APPS && _fastHint));
   uint32_t t = millis();
   backendPush(full, deep);
-  if (_lastShown) memcpy(_lastShown, _c.getBuffer(), ((SCREEN_W + 7) / 8) * SCREEN_H);
+  if (_lastShown) memcpy(_lastShown, _c.getBuffer(), bytes);
   _lastMs = millis() - t;
   if (full) { _partials = 0; _forceFull = false; _fulls++; }
   else      { _partials++; }
-  Serial.printf("[screen] %s refresh took %lu ms\n", deep ? "deep" : full ? "full" : _fastNow ? "fast" : "partial",
-                (unsigned long)_lastMs);
+  Serial.printf("[screen] %s refresh took %lu ms (%lu partial since full, %lu unchanged skipped)\n",
+                deep ? "deep" : full ? "full" : _fastNow ? "fast" : "partial", (unsigned long)_lastMs,
+                (unsigned long)_partials, (unsigned long)_skipped);
 }
 
 // Grey waveform timings; used by greyRefresh() on the 3.7" e-paper

@@ -171,6 +171,7 @@ private:
   bool       _fastNow = false;         // this refresh goes the fast way
   bool       _fastLutDirty = false;    // strength changed: reload the waveforms
   uint32_t   _lastKeyMs = 0;
+  uint32_t   _skipped = 0;             // refreshes skipped as nothing changed
   uint8_t*   _lastShown = nullptr;     // black layer as last sent to the panel (fast refresh needs it)
   GFXcanvas1 _r{SCREEN_W, SCREEN_H};
   uint32_t _partials = 0;

@@ -871,10 +871,14 @@ void tick() {
 #if STATUS_CLOCK_REDRAW
   static long lastMin = -2;                       // redraw when the clock's minute changes
   const long m = Clock::valid() ? (long)(time(nullptr) / 60) : -1;
-  if (m != lastMin) { lastMin = m; requestRedraw(Refresh::Partial); }
+  if (m != lastMin) { lastMin = m; Serial.println("[redraw] clock minute"); requestRedraw(Refresh::Partial); }
 #endif
   static bool lastKb = false;
-  if (kb.present() != lastKb) { lastKb = kb.present(); requestRedraw(Refresh::Partial); }
+  if (kb.present() != lastKb) {
+    lastKb = kb.present();
+    Serial.printf("[redraw] keyboard %s\n", lastKb ? "connected" : "gone");
+    requestRedraw(Refresh::Partial);
+  }
   static int lastBatt = -2;                       // bars + charging, so the icon stays current
   const int batt = Battery::level() * 2 + (Battery::charging() ? 1 : 0);
   if (batt != lastBatt) {
@@ -883,6 +887,7 @@ void tick() {
       noticeUntil = millis() + 6000;
     }
     lastBatt = batt;
+    Serial.printf("[redraw] battery %d bars%s\n", Battery::level(), Battery::charging() ? ", charging" : "");
     requestRedraw(Refresh::Partial);
   }
   if (noticeUntil && (int32_t)(millis() - noticeUntil) >= 0) { noticeUntil = 0; requestRedraw(Refresh::Partial); }
