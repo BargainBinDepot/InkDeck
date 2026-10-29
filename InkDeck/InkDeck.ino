@@ -1,5 +1,5 @@
 // =====================================================================
-//  InkDeck firmware v0.33
+//  InkDeck firmware v0.34
 //  ESP32-S3 + CardKB + e-paper (or the ST7789 TFT preview)
 //
 //  v0.1   display HAL, CardKB input, paged launcher, app framework
@@ -75,6 +75,10 @@
 //         short push with the panel kept powered (~100-200 ms a keystroke,
 //         more ghosting; a full refresh clears it). Lua: screen.fast(on).
 //         Default strength 7 frames (88 ms), the best of the GreyTest presets.
+//  v0.34  Grey calibration > Shades 8: experimental 8 shades. The 4-grey
+//         refresh, then a short second pass (5 ms frames) darkens the
+//         in-between levels; its own Light/Dark/Step 1/Step 2 timings. The
+//         test picture puts 8 against 4 greys. Pictures still use 4.
 //
 //  Arduino IDE (ESP32S3 Dev Module): Flash Size 16MB, Partition Scheme
 //  "16M Flash (3MB APP/9.9MB FATFS)", PSRAM "OPI PSRAM", USB CDC On Boot

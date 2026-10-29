@@ -3,6 +3,7 @@
 #include "keyboard.h"
 #include "sound.h"
 #include <esp_heap_caps.h>
+#include <algorithm>
 
 Screen screen;
 
@@ -55,6 +56,26 @@ static Screen::GreyTiming gT = Screen::greyDefaults();
 
 Screen::GreyTiming Screen::greyTiming() const { return gT; }
 
+// Experimental 8 shades
+static Screen::Grey8Timing g8 = Screen::grey8Defaults();
+
+Screen::Grey8Timing Screen::grey8Timing() const { return g8; }
+
+bool Screen::setGrey8Timing(const Grey8Timing& t) {
+  g8 = t;
+  redoGrey();
+  return saveSettings();
+}
+
+void Screen::setGrey8(bool on) {
+  if (on == _grey8) return;
+  _grey8 = on;
+  clear();                          // old levels mean something else now
+  // The next greys are always redrawn (they differ from these); with none, the
+  // ones on the panel still get cleaned off by a full refresh (_greyOnPanel)
+  if (_greyShown) memset(_greyShown, NO_GREY, (size_t)SCREEN_W * SCREEN_H);
+}
+
 bool Screen::setGreyTiming(const GreyTiming& t) {
   gT = t;
   redoGrey();
@@ -63,7 +84,7 @@ bool Screen::setGreyTiming(const GreyTiming& t) {
 
 void Screen::loadSettings() {
   String cfg;
-  if (!Storage::readText(DISPLAY_CONFIG_FILE, cfg, 256)) return;
+  if (!Storage::readText(DISPLAY_CONFIG_FILE, cfg, 512)) return;
   auto num = [&](const char* key, uint8_t& v, int lo, int hi) {
     const int p = cfg.indexOf(key);
     if (p < 0) return;
@@ -75,6 +96,10 @@ void Screen::loadSettings() {
   num("greyblack=", gT.black, 1, 63);
   num("greyclear=", gT.clear, 1, 63);
   num("greyrepeat=", gT.repeat, 0, 1);
+  num("g8light=", g8.light, 1, 63);
+  num("g8dark=", g8.dark, 1, 63);
+  num("g8step1=", g8.step1, 1, 63);
+  num("g8step2=", g8.step2, 1, 63);
   uint8_t fm = _fastMode;
   num("fast=", fm, 0, 2);
   _fastMode = (FastMode)fm;
@@ -94,6 +119,8 @@ bool Screen::saveSettings() {
                                                  "\ngreylight=" + String(gT.light) + "\ngreydark=" + String(gT.dark) +
                                                  "\ngreyblack=" + String(gT.black) + "\ngreyclear=" + String(gT.clear) +
                                                  "\ngreyrepeat=" + String(gT.repeat) +
+                                                 "\ng8light=" + String(g8.light) + "\ng8dark=" + String(g8.dark) +
+                                                 "\ng8step1=" + String(g8.step1) + "\ng8step2=" + String(g8.step2) +
                                                  "\nfast=" + String((int)_fastMode) + "\nfastframes=" + String(_fastFrames) + "\n");
 }
 
@@ -110,8 +137,9 @@ static inline bool standIn(int x, int y, uint8_t level) {
 
 void Screen::setGrey(int x, int y, uint8_t level) {
   if (x < 0 || y < 0 || x >= SCREEN_W || y >= SCREEN_H) return;
-  if (level > 3) level = 3;
-  _c.rawPixel(x, y, standIn(x, y, level));
+  const uint8_t top = greyMax();
+  if (level > top) level = top;
+  _c.rawPixel(x, y, standIn(x, y, (level * 3 + top / 2) / top));
   if (_c.grey) {
     _c.grey[y * SCREEN_W + x] = level;
     _c.greyUsed = true;
@@ -123,7 +151,7 @@ bool Screen::needsGrey() const {
   const size_t n = (size_t)SCREEN_W * SCREEN_H;
   for (size_t i = 0; i < n; i++) {
     const uint8_t v = _c.grey[i];
-    if (v == 1 || v == 2) return true;
+    if (v != NO_GREY && v != 0 && v != greyMax()) return true;
   }
   return false;
 }
@@ -146,7 +174,7 @@ void Screen::invertRect(int x, int y, int w, int h) {
       if (i < 0 || i >= SCREEN_W) continue;
       if (_c.greyUsed) {
         uint8_t& v = _c.grey[j * SCREEN_W + i];
-        if (v != NO_GREY) v = 3 - v;          // grey flips to the opposite shade
+        if (v != NO_GREY) v = greyMax() - v;  // grey flips to the opposite shade
       }
       _c.rawPixel(i, j, !_c.getPixel(i, j));
     }
@@ -277,7 +305,8 @@ void Screen::backendPush(bool full, bool deep) {
     int y0, y1;
     rowSpan(dy, y0, y1);
     for (int dx = 0; dx < dstW; dx++) {
-      // weights in thirds: black = 3, dark grey = 2, light grey = 1
+      // weights in grey levels: black = top (3, or 7 with 8 shades)
+      const int top = greyMax();
       int ink = 0, rd = 0, n = 0;
       for (int sy = y0; sy < y1; sy++) {
         const uint8_t* rowB = bw  + sy * bpr;
@@ -286,9 +315,9 @@ void Screen::backendPush(bool full, bool deep) {
           const uint8_t m = 0x80 >> (sx & 7);
           const uint8_t gv = grey ? grey[sy * SCREEN_W + sx] : NO_GREY;
           if (gv != NO_GREY)          ink += gv;
-          else if (rowB[sx >> 3] & m) ink += 3;
-          else if (rowR[sx >> 3] & m) rd += 3;
-          n += 3;
+          else if (rowB[sx >> 3] & m) ink += top;
+          else if (rowR[sx >> 3] & m) rd += top;
+          n += top;
         }
       }
       if (ink == 0 && rd == 0) lineBuf[dx] = COL_PAPER;
@@ -606,26 +635,40 @@ static void fastEnd() {
 }
 
 #if EPD_CAN_GREY
-static void greyRefresh(const uint8_t* bw, const uint8_t* grey) {
-  if (!planesReady()) return;
+// With 8 shades (eight): pass 1 lays down these of the four, pass 2 darkens
+// levels 1, 3, 5 by step1 and level 6 by step2
+static const uint8_t BASE8[8] = { 0, 0, 1, 1, 2, 2, 2, 3 };
+static const uint8_t STEP8[8] = { 0, 1, 0, 1, 0, 1, 2, 0 };
 
-  // 1. Build the two bit-planes. Bits are 1 = white.
-  //    white = old 1 new 1, light = old 0 new 1, dark = old 1 new 0, black = 0 0
+// The two bit-planes for one pass. Bits are 1 = white; each pixel's state
+// picks its waveform: 0 = old 1 new 1, 1 = old 0 new 1, 2 = old 1 new 0, 3 = 0 0
+static void greyPlanes(const uint8_t* bw, const uint8_t* grey, bool eight, int pass) {
   memset(planeOld, 0, PLANE);
   memset(planeNew, 0, PLANE);
   const int bpr = (SCREEN_W + 7) / 8;
+  const uint8_t top = eight ? 7 : 3;
   for (int y = 0; y < SCREEN_H; y++) {
     for (int x = 0; x < SCREEN_W; x++) {
       uint8_t lv = grey[y * SCREEN_W + x];
-      if (lv == NO_GREY) lv = (bw[y * bpr + (x >> 3)] & (0x80 >> (x & 7))) ? 3 : 0;
+      if (lv == NO_GREY) lv = (bw[y * bpr + (x >> 3)] & (0x80 >> (x & 7))) ? top : 0;
+      if (lv > top) lv = top;
+      const uint8_t st = !eight ? lv : pass == 1 ? BASE8[lv] : STEP8[lv];
       int nx, ny;
       toNative(x, y, nx, ny);
       const size_t i = (size_t)ny * (NW / 8) + nx / 8;
       const uint8_t m = 0x80 >> (nx & 7);
-      if (lv == 0 || lv == 2) planeOld[i] |= m;
-      if (lv == 0 || lv == 1) planeNew[i] |= m;
+      if (st == 0 || st == 2) planeOld[i] |= m;
+      if (st == 0 || st == 1) planeNew[i] |= m;
     }
   }
+}
+
+static void greyRefresh(const uint8_t* bw, const uint8_t* grey, bool eight) {
+  if (!planesReady()) return;
+  const int bpr = (SCREEN_W + 7) / 8;
+
+  // 1. The first (or only) pass: white, light, dark, black
+  greyPlanes(bw, grey, eight, 1);
 
   // 2. Wake the controller and load our waveforms
   hardReset();
@@ -636,11 +679,13 @@ static void greyRefresh(const uint8_t* bw, const uint8_t* grey) {
   gCmd(0x50); gData1(0xD7);                            // border left alone
   GPhase w[4], lt[4], dk[4], bk[4], vc[4];
   gWave(w, 0);
-  gWave(lt, gT.light);
-  gWave(dk, gT.dark);
+  gWave(lt, eight ? g8.light : gT.light);
+  gWave(dk, eight ? g8.dark : gT.dark);
   gWave(bk, gT.black);
   Serial.printf("[screen] grey timing: light %u dark %u black %u clear %u repeat %u\n",
                 gT.light, gT.dark, gT.black, gT.clear, gT.repeat);
+  if (eight) Serial.printf("[screen] 8 shades: light %u dark %u step1 %u step2 %u\n",
+                           g8.light, g8.dark, g8.step1, g8.step2);
   for (int i = 0; i < 4; i++) vc[i] = { 0, bk[i].fr };
   gLut(0x20, vc, 4, 8);                                // VCOM
   gLut(0x21, w,  4, 6);                                // old 1 new 1 -> white
@@ -653,11 +698,31 @@ static void greyRefresh(const uint8_t* bw, const uint8_t* grey) {
   gCmd(0x13); gData(planeNew, PLANE);
   gCmd(0x04); gWait("power on", 1000);
   gCmd(0x12);
-  const uint32_t ms = gWait("grey refresh", 15000);
-  gCmd(0x02); gWait("power off", 1000);
-  Serial.printf("[screen] grey refresh %lu ms\n", (unsigned long)ms);
+  uint32_t ms = gWait("grey refresh", 15000);
 
-  // 4. Hand the panel back to GxEPD2: its own waveforms again, and both of the
+  // 4. With 8 shades: a second, short pass darkens the in-between levels a
+  //    step or two (no shaking, or it would undo pass 1)
+  if (eight) {
+    greyPlanes(bw, grey, true, 2);
+    gCmd(0x30); gData1(0x1F);                          // 200 Hz: 5 ms frames, for fine steps
+    const GPhase none[1] = { { 0, 0 } };
+    const GPhase s1[1] = { { 1, g8.step1 } };
+    const GPhase s2[1] = { { 1, g8.step2 } };
+    const GPhase vc[1] = { { 0, std::max(g8.step1, g8.step2) } };
+    gLut(0x20, vc, 1, 8);
+    gLut(0x21, none, 1, 6);                            // levels 0, 2, 4, 7: as they are
+    gLut(0x22, s1, 1, 8);                              // levels 1, 3, 5: one step darker
+    gLut(0x23, s2, 1, 8);                              // level 6: two steps darker
+    gLut(0x24, none, 1, 8);
+    gCmd(0x10); gData(planeOld, PLANE);
+    gCmd(0x13); gData(planeNew, PLANE);
+    gCmd(0x12);
+    ms += gWait("grey step pass", 5000);
+  }
+  gCmd(0x02); gWait("power off", 1000);
+  Serial.printf("[screen] grey refresh %lu ms%s\n", (unsigned long)ms, eight ? " (8 shades, 2 passes)" : "");
+
+  // 5. Hand the panel back to GxEPD2: its own waveforms again, and both of the
   //    controller's pictures set to the black/white version, so the next fast
   //    refresh only touches pixels that really change (the greys stay put).
   gCmd(0x00); gData1(0x1e); gData1(0x0d);
@@ -707,7 +772,7 @@ void Screen::backendPush(bool full, bool deep) {
   const size_t n = (size_t)SCREEN_W * SCREEN_H;
   if (wantGrey && _greyShown) {
     if (full || !_greyOnPanel || _sleptSinceGrey || memcmp(_c.grey, _greyShown, n) != 0) {
-      greyRefresh(_c.getBuffer(), _c.grey);
+      greyRefresh(_c.getBuffer(), _c.grey, _grey8);
       memcpy(_greyShown, _c.grey, n);
       _greyOnPanel = true;
       _sleptSinceGrey = false;

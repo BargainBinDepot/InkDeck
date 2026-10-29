@@ -12,7 +12,7 @@
 //    43, 44        UART0 TX/RX
 // =====================================================================
 
-#define FW_VERSION "v0.33"
+#define FW_VERSION "v0.34"
 #define BRAND_NAME "InkDeck"
 
 // ---------------- Which display is plugged in ----------------
@@ -88,6 +88,11 @@
 #define EPD_GREY_BLACK    22     // ... black
 #define EPD_GREY_CLEAR    18     // length of each cleaning pulse
 #define EPD_GREY_REPEAT    1     // the "x" setting in the test sketch
+// Experimental 8 shades (Grey calibration > Shades 8). Starting guesses:
+#define EPD_GREY8_LIGHT    2     // frames (20 ms) of darkening for level 2
+#define EPD_GREY8_DARK     3     // ... level 4
+#define EPD_GREY8_STEP1    3     // second pass, frames of 5 ms: one step darker (levels 1, 3, 5)
+#define EPD_GREY8_STEP2    6     // ... two steps darker (level 6)
 
 // 3.7" only: fast refresh (Settings > Fast refresh, off by default). Changed
 // pixels get one short push with InkDeck's own waveform, unchanged ones none,

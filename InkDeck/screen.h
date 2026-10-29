@@ -97,6 +97,19 @@ public:
   bool setGreyTiming(const GreyTiming& t);   // saved; the next refresh redraws the greys with it
   void redoGrey() { _greyOnPanel = false; }  // next refresh redraws the greys even if they didn't change
 
+  // Experimental 8 shades (Grey calibration only, for now): setGrey() takes
+  // levels 0 (white) .. 7 (black). The 4-grey refresh lays down white, light,
+  // dark or black, then a second short pass darkens the in-between levels a
+  // step (1 / 3 / 5) or two (6). Timings: light/dark in 20 ms frames like
+  // the 4-grey ones, the steps in 5 ms frames.
+  struct Grey8Timing { uint8_t light, dark, step1, step2; };
+  static Grey8Timing grey8Defaults() { return { EPD_GREY8_LIGHT, EPD_GREY8_DARK, EPD_GREY8_STEP1, EPD_GREY8_STEP2 }; }
+  Grey8Timing grey8Timing() const;
+  bool setGrey8Timing(const Grey8Timing& t);   // saved
+  void setGrey8(bool on);                      // switch levels 0..3 <-> 0..7 (redraw after)
+  bool grey8() const { return _grey8; }
+  uint8_t greyMax() const { return _grey8 ? 7 : 3; }   // the black level
+
   // Fast refresh (3.7" e-paper). Mode: off (default), only while an app asks
   // for it (screen.fast(true) in Lua, e.g. an editor while typing), or always.
   // Only plain partial refreshes go fast; greys, full and app-switch
@@ -149,6 +162,7 @@ private:
   uint8_t*   _greyShown = nullptr;   // grey levels the e-paper is showing now
   bool       _greyOnPanel = false;
   bool       _sleptSinceGrey = false;  // panel was put to sleep: redo greys on the next refresh
+  bool       _grey8 = false;           // grey levels are 0..7 (experimental 8 shades)
   bool needsGrey() const;              // any light/dark grey pixels to show?
   FastMode   _fastMode = FAST_OFF;
   uint8_t    _fastFrames = FAST_FRAMES;

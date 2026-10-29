@@ -828,6 +828,7 @@ int  luaAppCount() { return luaApps.size(); }
 
 void goHome() {
   if (current >= 0 && apps[current].lua >= 0) LuaHost::close();
+  GreyCal::leave();                          // the 8-shade test never outlives its screen
   ui = HomeUi::Grid;                         // (stays in the folder the app was opened from)
   current = -1;
   customTitle = "";
@@ -1324,6 +1325,7 @@ static bool sysBack() {
     case SysScreen::Clock:    sysGo(SysScreen::Settings, 0); break;
     case SysScreen::Zones:    sysGo(SysScreen::Clock, 1); break;
     case SysScreen::Grey: {                                    // back to its row in Settings
+      GreyCal::leave();
       const std::vector<int> r = settingsRows();
       sysGo(SysScreen::Settings, std::find(r.begin(), r.end(), (int)SET_GREY) - r.begin());
       break;
