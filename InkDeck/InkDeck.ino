@@ -74,6 +74,7 @@
 //         Off / In editors / Always, and Fast strength. Changed pixels get one
 //         short push with the panel kept powered (~100-200 ms a keystroke,
 //         more ghosting; a full refresh clears it). Lua: screen.fast(on).
+//         Default strength 7 frames (88 ms), the best of the GreyTest presets.
 //
 //  Arduino IDE (ESP32S3 Dev Module): Flash Size 16MB, Partition Scheme
 //  "16M Flash (3MB APP/9.9MB FATFS)", PSRAM "OPI PSRAM", USB CDC On Boot

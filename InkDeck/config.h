@@ -93,7 +93,8 @@
 // pixels get one short push with InkDeck's own waveform, unchanged ones none,
 // and the panel stays powered while you type. Faster than the normal partial
 // refresh, with more ghosting (the "Full refresh after" setting cleans it up).
-#define FAST_FRAMES        10    // default strength: frames of 12.5 ms (80 Hz) per change
+#define FAST_FRAMES         7    // default strength: frames of 12.5 ms (80 Hz) per change
+                                 // (7 = preset C in the GreyTest sketch, the best looking)
 #define FAST_IDLE_MS     1000    // power the panel down after this long without a fast refresh
 
 // 2.9" BWR only: "fake temperature" speed hack.

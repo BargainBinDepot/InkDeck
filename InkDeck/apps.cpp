@@ -1264,7 +1264,7 @@ static const uint32_t SLEEP_CHOICES[] = { 60, 120, 300, 600, 0 };      // second
 // Partial refreshes before a full one (Screen::REFRESH_NEVER = never)
 static const uint16_t FULL_EVERY_CHOICES[]  = { 25, 50, 100, 200, 500, Screen::REFRESH_NEVER };
 // Fast refresh strength: 12.5 ms frames per change (more = blacker, slower)
-static const uint8_t FAST_FRAME_CHOICES[] = { 6, 8, 10, 12, 16 };
+static const uint8_t FAST_FRAME_CHOICES[] = { 5, 6, 7, 8, 10, 12 };
 static const char* fastModeLabel(Screen::FastMode m) {
   return m == Screen::FAST_ALWAYS ? "Always" : m == Screen::FAST_APPS ? "In editors" : "Off";
 }
@@ -1479,7 +1479,7 @@ static void sysDrawScreen() {
           case SET_CLICK:  right = !Sound::enabled() ? "(sound off)" : Sound::clicks() ? "On" : "Off"; break;
           case SET_GREY:   right = ">"; break;
           case SET_FAST:   right = fastModeLabel(screen.fastMode()); break;
-          case SET_FASTSTR: right = String(screen.fastFrames() * 25 / 2) + " ms"; break;
+          case SET_FASTSTR: right = String((screen.fastFrames() * 25 + 1) / 2) + " ms"; break;
         }
         items.push_back(menuRow(SYS_SETTINGS[id], right));
       }
