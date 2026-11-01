@@ -12,7 +12,7 @@
 //    43, 44        UART0 TX/RX
 // =====================================================================
 
-#define FW_VERSION "v0.38"
+#define FW_VERSION "v0.39"
 #define BRAND_NAME "InkDeck"
 
 // ---------------- Which display is plugged in ----------------
@@ -154,7 +154,7 @@
 // ---------------- Battery meter (see battery.h for the wiring) ----------------
 #define BATT_MONITOR     1       // 4-bar meter in the title bar (hidden while no battery voltage is seen); 0 = off
 #define PIN_BATT_ADC     4       // ADC1 channel (safe with WiFi on): middle of the battery divider
-#define PIN_USB_SENSE    -1      // GPIO on a 100k/100k divider from the charger's USB 5V, or -1 (no charging icon)
+#define PIN_USB_SENSE     6      // GPIO on a 100k/100k divider from the charger's USB 5V (TP4056 IN+), or -1 if not wired
 #define BATT_DIVIDER     2.0f    // (top + bottom) / bottom: 100k + 100k = 2.0
 #define BATT_CAL         1.00f   // fine-tune: multimeter volts / volts shown in System > About
 #define BATT_SHUTDOWN_V  3.45f   // "Battery empty" + deep sleep below this. Set it to where your board's
