@@ -12,7 +12,7 @@
 //    43, 44        UART0 TX/RX
 // =====================================================================
 
-#define FW_VERSION "v0.39"
+#define FW_VERSION "v0.40"
 #define BRAND_NAME "InkDeck"
 
 // ---------------- Which display is plugged in ----------------
@@ -156,7 +156,9 @@
 #define PIN_BATT_ADC     4       // ADC1 channel (safe with WiFi on): middle of the battery divider
 #define PIN_USB_SENSE     6      // GPIO on a 100k/100k divider from the charger's USB 5V (TP4056 IN+), or -1 if not wired
 #define BATT_DIVIDER     2.0f    // (top + bottom) / bottom: 100k + 100k = 2.0
-#define BATT_CAL         1.00f   // fine-tune: multimeter volts / volts shown in System > About
+#define BATT_CAL         1.00f   // fine-tune: multimeter volts / volts shown. Usually set on the device
+                                 // instead: System > Battery, Left/Right (saved in BATT_CONFIG_FILE)
+#define BATT_CONFIG_FILE "/system/battery.txt"
 #define BATT_SHUTDOWN_V  3.45f   // "Battery empty" + deep sleep below this. Set it to where your board's
                                  // 3.3V regulator gives up: ~3.45 for an LDO like the ME6211, ~4.2 for an AMS1117
 #define BATT_READ_SEC    30      // how often to measure

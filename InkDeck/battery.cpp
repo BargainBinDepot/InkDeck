@@ -6,6 +6,7 @@
 #include "clock.h"
 #include "esp_sleep.h"
 #include "sound.h"
+#include "storage.h"
 
 namespace Battery {
 
@@ -26,13 +27,14 @@ static const float LEVEL_V[4] = { 3.62f, 3.73f, 3.82f, 3.95f };
 static const float HYST = 0.03f;   // a bar comes back only 30 mV above its threshold
 
 static float pinV = 0;              // last raw reading at PIN_BATT_ADC (for About / the log)
+static float calF = BATT_CAL;       // multimeter volts / measured volts (System > Battery)
 
 static float readOnce() {
   // Average many samples; analogReadMilliVolts uses the chip's factory calibration
   uint32_t sum = 0;
   for (int i = 0; i < 32; i++) sum += analogReadMilliVolts(PIN_BATT_ADC);
   pinV = sum / 32.0f / 1000.0f;
-  return pinV * BATT_DIVIDER * BATT_CAL;
+  return pinV * BATT_DIVIDER * calF;
 }
 
 static bool readUsb() {
@@ -77,6 +79,27 @@ float volts()    { return vSmooth; }
 bool  charging() { return usb; }
 bool  critical() { return lowReadings >= 2; }       // two readings in a row: not just a spike
 float pinVolts() { return pinV; }
+float cal()      { return calF; }
+
+void loadSettings() {
+  String cfg;
+  if (Storage::readText(BATT_CONFIG_FILE, cfg, 64)) {
+    const int p = cfg.indexOf("cal=");
+    const float f = p >= 0 ? cfg.substring(p + 4).toFloat() : 0;
+    if (f > 0.7f && f < 1.3f) calF = f;
+  }
+  if (calF != BATT_CAL) { Serial.printf("[batt] calibration x%.3f\n", calF); vSmooth = 0; measureNow(); }
+}
+
+void nudgeCal(int dir) {
+  if (vSmooth <= 0) return;
+  const float f = calF * (vSmooth + 0.01f * dir) / vSmooth;
+  if (f < 0.7f || f > 1.3f) return;
+  vSmooth *= f / calF;                               // shown at once, without waiting for a reading
+  calF = f;
+  bars = barsFor(vSmooth);                           // and the meter follows straight away
+  Storage::writeText(BATT_CONFIG_FILE, "cal=" + String(calF, 4) + "\n");
+}
 uint32_t sinceReadSec() { return lastRead ? (millis() - lastRead) / 1000 : 0; }
 
 // Typical LiPo resting voltage at each 10% (under the light load InkDeck draws)
@@ -152,6 +175,9 @@ bool  critical() { return false; }
 String label()   { return "not monitored"; }
 int   percent()  { return -1; }
 float pinVolts() { return 0; }
+void loadSettings() {}
+float cal() { return 1; }
+void nudgeCal(int) {}
 uint32_t sinceReadSec() { return 0; }
 
 #endif

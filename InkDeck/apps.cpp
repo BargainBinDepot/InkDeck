@@ -1367,6 +1367,8 @@ static void sysActivate() {
       Battery::measureNow();
       AppMgr::requestRedraw(Refresh::Partial);
       break;
+    default:
+      break;
     case SysScreen::Settings: {
       const std::vector<int> rows = settingsRows();
       if (sysSel < 0 || sysSel >= (int)rows.size()) break;
@@ -1432,6 +1434,11 @@ static void sysKey(uint8_t k) {
     else if (k == K_LEFT || k == K_RIGHT)  GreyCal::change(sysSel, k == K_RIGHT ? 1 : -1);
     else if (k == K_ENTER)                 GreyCal::activate(sysSel);
     else return;
+    AppMgr::requestRedraw(Refresh::Partial);
+    return;
+  }
+  if (sysScr == SysScreen::Battery && Battery::present() && (k == K_LEFT || k == K_RIGHT)) {
+    Battery::nudgeCal(k == K_RIGHT ? 1 : -1);                  // calibrate against a multimeter
     AppMgr::requestRedraw(Refresh::Partial);
     return;
   }
@@ -1512,8 +1519,10 @@ static void sysDrawBattery() {
     row("Shuts down at", String(BATT_SHUTDOWN_V, 2) + " V");
     row("Pin voltage", String(Battery::pinVolts(), 3) + " V on GPIO " + String(PIN_BATT_ADC));
     row("Last reading", String(Battery::sinceReadSec()) + " s ago, every " + String(BATT_READ_SEC) + " s");
+    row("Calibration", String("x") + String(Battery::cal(), 3));
   }
-  screen.text(MARGIN, SCREEN_H - LINE_H, "Enter=measure now  Left=back", T);
+  screen.text(MARGIN, SCREEN_H - LINE_H,
+              Battery::present() ? "Lt/Rt=calibrate  Enter=measure  Esc=back" : "Enter=measure now  Esc=back", T);
 }
 
 static void sysDrawScreen() {

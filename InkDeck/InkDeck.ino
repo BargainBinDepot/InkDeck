@@ -1,5 +1,5 @@
 // =====================================================================
-//  InkDeck firmware v0.39
+//  InkDeck firmware v0.40
 //  ESP32-S3 + CardKB + e-paper (or the ST7789 TFT preview)
 //
 //  v0.1   display HAL, CardKB input, paged launcher, app framework
@@ -89,6 +89,10 @@
 //  v0.38  System menu: Battery (charge %, voltage, power source, raw pin reading;
 //         Enter measures now) and Screen calibration (moved out of Settings).
 //  v0.39  USB sense on GPIO 6 (charging icon, wake on USB after an empty shutdown).
+//  v0.40  Partial refreshes re-send the panel's "previous" picture first (it's
+//         lost when the panel sleeps, which left old pixels such as icons
+//         behind). System > Battery: Left/Right calibrate the voltage against
+//         a multimeter (saved in /system/battery.txt).
 //
 //  Arduino IDE (ESP32S3 Dev Module): Flash Size 16MB, Partition Scheme
 //  "16M Flash (3MB APP/9.9MB FATFS)", PSRAM "OPI PSRAM", USB CDC On Boot
@@ -130,6 +134,7 @@ void setup() {
   kb.begin();
   Storage::begin();
   screen.loadSettings();
+  Battery::loadSettings();
   Sound::begin();
   Clock::begin();
   Power::begin();

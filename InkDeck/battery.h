@@ -33,5 +33,8 @@ int  percent();           // rough charge from the smoothed voltage (resting LiP
 float pinVolts();         // last raw reading at PIN_BATT_ADC
 uint32_t sinceReadSec();  // seconds since the last reading
 bool usbSensed();         // PIN_USB_SENSE is wired (charging can be shown)
+void loadSettings();      // after Storage::begin(): the saved calibration
+float cal();              // calibration factor (multimeter volts / measured volts)
+void nudgeCal(int dir);   // change it so the voltage shown moves 0.01 V up (+1) or down (-1); saved
 
 }

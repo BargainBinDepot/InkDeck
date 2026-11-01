@@ -830,6 +830,16 @@ void Screen::backendPush(bool full, bool deep) {
   epd.drawBitmap(0, 0, _r.getBuffer(), SCREEN_W, SCREEN_H, GxEPD_RED);
 #endif
   epd.drawBitmap(0, 0, _c.getBuffer(), SCREEN_W, SCREEN_H, GxEPD_BLACK);  // black drawn last so it wins
+#if DISPLAY_PANEL == PANEL_WEACT_370_BW
+  // A partial refresh only drives pixels that differ from the controller's
+  // "previous" picture. That copy is lost when the panel sleeps (and can be
+  // off after other mishaps), leaving old pixels on screen, so send it again
+  // from what we know is shown.
+  if (!full && _lastShown && (_fulls || _partials) && planesReady()) {
+    packBW(_lastShown, planeNew);
+    epd.epd2.writeImageToPrevious(planeNew, 0, 0, NW, NH);
+  }
+#endif
   epd.display(!full);
 }
 
