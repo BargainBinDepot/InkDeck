@@ -1367,8 +1367,6 @@ static void sysActivate() {
       Battery::measureNow();
       AppMgr::requestRedraw(Refresh::Partial);
       break;
-    default:
-      break;
     case SysScreen::Settings: {
       const std::vector<int> rows = settingsRows();
       if (sysSel < 0 || sysSel >= (int)rows.size()) break;
