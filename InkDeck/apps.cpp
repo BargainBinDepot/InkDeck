@@ -111,23 +111,34 @@ static void drawStatusBar(const char* title, bool inApp) {
   // Pinstripes: T-thick lines every 2T, inset from the top, bottom and sides
   for (int y = 2 * T; y + T <= h - T; y += 2 * T) g.fillRect(T, y, SCREEN_W - 2 * T, T, INK);
 
-  // Clock on the right, on a white gap, with a short stripe tail after it. The gap is
-  // always as wide as the longest time ("12:00 PM" / "00:00"), whatever it shows now
+  // Close box on the left while an app is open
+  int leftLimit = T;
+  if (inApp) {
+    const int bs = h - 4 * T;                                  // box size
+    const int bx = 5 * T;
+    g.fillRect(bx - 2 * T, 0, bs + 4 * T, h, PAPER);
+    for (int i = 0; i < T; i++) g.drawRect(bx + i, 2 * T + i, bs - 2 * i, bs - 2 * i, INK);
+    leftLimit = bx + bs + 2 * T;
+  }
+
+  // Clock on the left (after the close box), on a white gap. The gap is always as
+  // wide as the longest time ("12:00 PM" / "00:00"), whatever it shows now
   // ("9:05 PM", "zZ" while asleep), so the stripes never move: partial refreshes
   // that swap stripes and digits in the same spot leave ghosts on e-paper.
   const String clk = Power::sleeping() ? String("zZ") : Clock::hhmm();   // asleep: don't show a stale time
   const int cw = screen.textWidth(Clock::use12h() ? "12:00 PM" : "00:00", T);
-  const int clockX = SCREEN_W - 5 * T - cw;
-  g.fillRect(clockX - 2 * T, 0, cw + 4 * T, h, PAPER);
-  screen.text(clockX + cw - screen.textWidth(clk.c_str(), T), 2 * T, clk.c_str(), T);   // right-aligned
-  int rightLimit = clockX - 2 * T;                             // the title stays left of this
+  const int clockX = inApp ? leftLimit + 2 * T : 5 * T;
+  g.fillRect(clockX - 2 * T, 0, cw + 4 * T, h, PAPER);       // (joins the close box's gap)
+  screen.text(clockX, 2 * T, clk.c_str(), T);                // left-aligned
+  leftLimit = clockX + cw + 2 * T;                             // the title stays right of this
 
-  // Battery: 4 bars in a battery outline, left of the clock; a "+" while charging
+  // Battery on the right: 4 bars in a battery outline; a "+" left of it while charging
+  int rightLimit = SCREEN_W - T;
   if (Battery::present()) {
     const int bh = CH - T, seg = 2 * T, gap = T;               // body height, bar width, spacing
     const int bw = 4 * seg + 5 * gap + 2 * T;                  // body width
-    const int bx = clockX - 4 * T - bw - 2 * T, by = 2 * T;
-    g.fillRect(bx - 2 * T, 0, clockX - bx, h, PAPER);        // one white gap up to the clock's: no stripe slivers
+    const int bx = SCREEN_W - 6 * T - bw, by = 2 * T;          // (room for the nub on the right)
+    g.fillRect(bx - 2 * T, 0, SCREEN_W - (bx - 2 * T), h, PAPER);   // one white gap to the edge: no stripe slivers
     for (int i = 0; i < T; i++) g.drawRect(bx + i, by + i, bw - 2 * i, bh - 2 * i, INK);
     g.fillRect(bx + bw, by + bh / 4, T + (T > 1 ? 0 : 1), bh / 2, INK);   // the nub
     for (int i = 0; i < Battery::level(); i++)
@@ -141,16 +152,6 @@ static void drawStatusBar(const char* title, bool inApp) {
     } else {
       rightLimit = bx - 3 * T;
     }
-  }
-
-  // Close box on the left while an app is open
-  int leftLimit = T;
-  if (inApp) {
-    const int bs = h - 4 * T;                                  // box size
-    const int bx = 5 * T;
-    g.fillRect(bx - 2 * T, 0, bs + 4 * T, h, PAPER);
-    for (int i = 0; i < T; i++) g.drawRect(bx + i, 2 * T + i, bs - 2 * i, bs - 2 * i, INK);
-    leftLimit = bx + bs + 2 * T;
   }
 
   // Title, centred and bold (drawn twice, one pixel apart), trimmed to fit between the boxes
