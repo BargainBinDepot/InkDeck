@@ -89,7 +89,7 @@ public:
   bool canShowGrey() const;               // this panel really shows grey shades
   bool hasGreyWaveforms() const;          // greys come from InkDeck's own e-paper waveforms (tunable)
 
-  // Grey waveform timings (System > Settings > Grey calibration), in frames of
+  // Grey waveform timings (System > Screen calibration), in frames of
   // 20 ms, saved in DISPLAY_CONFIG_FILE. Defaults: EPD_GREY_* in config.h.
   struct GreyTiming { uint8_t light, dark, black, clear, repeat; };
   static GreyTiming greyDefaults() { return { EPD_GREY_LIGHT, EPD_GREY_DARK, EPD_GREY_BLACK, EPD_GREY_CLEAR, EPD_GREY_REPEAT }; }
@@ -97,7 +97,7 @@ public:
   bool setGreyTiming(const GreyTiming& t);   // saved; the next refresh redraws the greys with it
   void redoGrey() { _greyOnPanel = false; }  // next refresh redraws the greys even if they didn't change
 
-  // Experimental 8 shades (Grey calibration only, for now): setGrey() takes
+  // Experimental 8 shades (Screen calibration only, for now): setGrey() takes
   // levels 0 (white) .. 7 (black). The 4-grey refresh lays down white, light,
   // dark or black, then a second short pass darkens the in-between levels a
   // step (1 / 3 / 5) or two (6). Timings: light/dark in 20 ms frames like

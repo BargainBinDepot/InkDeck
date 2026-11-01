@@ -28,5 +28,10 @@ bool charging();          // USB power on PIN_USB_SENSE (false if that isn't wir
 bool critical();          // at or below BATT_SHUTDOWN_V: time to shut down
 void measureNow();        // take a reading now (used by the sleep loop)
 String label();           // e.g. "3.87 V, 3/4" for About / the web page
+// For System > Battery
+int  percent();           // rough charge from the smoothed voltage (resting LiPo curve), -1 if not present
+float pinVolts();         // last raw reading at PIN_BATT_ADC
+uint32_t sinceReadSec();  // seconds since the last reading
+bool usbSensed();         // PIN_USB_SENSE is wired (charging can be shown)
 
 }

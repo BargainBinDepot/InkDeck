@@ -9,6 +9,8 @@
 
 namespace Battery {
 
+bool usbSensed() { return BATT_MONITOR && PIN_USB_SENSE >= 0; }
+
 #if BATT_MONITOR
 
 static float vSmooth = 0;          // 0 = no reading yet
@@ -74,6 +76,18 @@ int   level()    { return bars; }
 float volts()    { return vSmooth; }
 bool  charging() { return usb; }
 bool  critical() { return lowReadings >= 2; }       // two readings in a row: not just a spike
+float pinVolts() { return pinV; }
+uint32_t sinceReadSec() { return lastRead ? (millis() - lastRead) / 1000 : 0; }
+
+// Typical LiPo resting voltage at each 10% (under the light load InkDeck draws)
+int percent() {
+  if (!present()) return -1;
+  static const float V[11] = { 3.30f, 3.60f, 3.68f, 3.73f, 3.77f, 3.80f, 3.84f, 3.89f, 3.96f, 4.06f, 4.18f };
+  if (vSmooth <= V[0]) return 0;
+  for (int i = 1; i < 11; i++)
+    if (vSmooth < V[i]) return (int)((i - 1) * 10 + 10 * (vSmooth - V[i - 1]) / (V[i] - V[i - 1]) + 0.5f);
+  return 100;
+}
 
 String label() {
   if (!present()) return "none seen (GPIO " + String(PIN_BATT_ADC) + " = " + String(pinV, 2) + " V)";
@@ -136,6 +150,9 @@ float volts()    { return 0; }
 bool  charging() { return false; }
 bool  critical() { return false; }
 String label()   { return "not monitored"; }
+int   percent()  { return -1; }
+float pinVolts() { return 0; }
+uint32_t sinceReadSec() { return 0; }
 
 #endif
 

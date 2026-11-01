@@ -1,5 +1,5 @@
 // =====================================================================
-//  InkDeck firmware v0.37
+//  InkDeck firmware v0.38
 //  ESP32-S3 + CardKB + e-paper (or the ST7789 TFT preview)
 //
 //  v0.1   display HAL, CardKB input, paged launcher, app framework
@@ -86,6 +86,8 @@
 //  v0.36  Refreshes that wouldn't change anything are skipped (each one nudges
 //         every pixel); the log says why idle redraws happen ([redraw] ...).
 //  v0.37  Title bar: clock on the left (after the close box), battery on the right.
+//  v0.38  System menu: Battery (charge %, voltage, power source, raw pin reading;
+//         Enter measures now) and Screen calibration (moved out of Settings).
 //
 //  Arduino IDE (ESP32S3 Dev Module): Flash Size 16MB, Partition Scheme
 //  "16M Flash (3MB APP/9.9MB FATFS)", PSRAM "OPI PSRAM", USB CDC On Boot

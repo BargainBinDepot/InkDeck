@@ -1240,18 +1240,36 @@ static void keyTestDraw() {
 //  System — About (device info) and Settings (Clock, screen refresh).
 //  Up/Down move, Right/Enter open or change, Left/Esc go back.
 // =====================================================================
-enum class SysScreen { Menu, About, Settings, Clock, Zones, Grey };
+enum class SysScreen { Menu, About, Settings, Clock, Zones, Grey, Battery };
 static SysScreen sysScr = SysScreen::Menu;
 static int sysSel = 0, sysTop = 0;
 static String sysMsg;
 
-static const char* SYS_MENU[]     = { "About this device", "Settings" };
+// System menu rows; screen calibration only where greys are shown
+static std::vector<SysScreen> sysMenu() {
+  std::vector<SysScreen> m = { SysScreen::About, SysScreen::Battery };
+  if (screen.canShowGrey()) m.push_back(SysScreen::Grey);
+  m.push_back(SysScreen::Settings);
+  return m;
+}
+static const char* sysMenuName(SysScreen s) {
+  switch (s) {
+    case SysScreen::About:   return "About this device";
+    case SysScreen::Battery: return "Battery";
+    case SysScreen::Grey:    return "Screen calibration";
+    default:                 return "Settings";
+  }
+}
+static int sysMenuIndex(SysScreen s) {
+  const std::vector<SysScreen> m = sysMenu();
+  return std::find(m.begin(), m.end(), s) - m.begin();
+}
 // Settings rows; the list shown depends on the panel and firmware (see settingsRows)
-enum SetRow { SET_CLOCK, SET_SLEEP, SET_EVERY, SET_SWITCH, SET_STYLE, SET_CLEAN, SET_ROLLBACK, SET_SOUND, SET_CLICK, SET_GREY,
+enum SetRow { SET_CLOCK, SET_SLEEP, SET_EVERY, SET_SWITCH, SET_STYLE, SET_CLEAN, SET_ROLLBACK, SET_SOUND, SET_CLICK,
              SET_FAST, SET_FASTSTR };
 static const char* SYS_SETTINGS[] = { "Clock", "Sleep after", "Full refresh after", "Full on app switch",
                                       "Full refresh type", "Deep clean screen", "Previous firmware", "Sound",
-                                      "Arrow key click", "Grey calibration", "Fast refresh", "Fast strength" };
+                                      "Arrow key click", "Fast refresh", "Fast strength" };
 static std::vector<int> settingsRows() {
   std::vector<int> r = { SET_CLOCK, SET_SLEEP };
   if (Sound::hasBuzzer()) r.insert(r.end(), { SET_SOUND, SET_CLICK });
@@ -1261,7 +1279,6 @@ static std::vector<int> settingsRows() {
     r.push_back(SET_FAST);
     if (screen.fastMode() != Screen::FAST_OFF) r.push_back(SET_FASTSTR);
   }
-  if (screen.canShowGrey()) r.push_back(SET_GREY);
   r.push_back(SET_CLEAN);
   if (Ota::canRollBack()) r.push_back(SET_ROLLBACK);
   return r;
@@ -1304,7 +1321,7 @@ static void sysGo(SysScreen to, int select = 0) {
   sysSel = select;
   sysTop = 0;
   sysMsg = "";
-  static const char* titles[] = { "System", "About", "Settings", "Clock", "Time zone", "Grey calibration" };
+  static const char* titles[] = { "System", "About", "Settings", "Clock", "Time zone", "Screen calibration", "Battery" };
   AppMgr::setTitle(titles[(int)to]);
   AppMgr::requestRedraw(Refresh::Full);
 }
@@ -1313,7 +1330,7 @@ static void sysEnter() { sysGo(SysScreen::Menu); }
 
 static int sysCount() {
   switch (sysScr) {
-    case SysScreen::Menu:     return 2;
+    case SysScreen::Menu:     return sysMenu().size();
     case SysScreen::Settings: return settingsRows().size();
     case SysScreen::Clock:    return CLOCK_ITEMS;
     case SysScreen::Zones:    return Clock::zoneCount();
@@ -1326,24 +1343,29 @@ static bool sysBack() {
   if (sysRollAsk) { sysRollAsk = false; AppMgr::requestRedraw(Refresh::Partial); return true; }
   switch (sysScr) {
     case SysScreen::Menu:     return false;                    // leave the app
-    case SysScreen::About:    sysGo(SysScreen::Menu, 0); break;
-    case SysScreen::Settings: sysGo(SysScreen::Menu, 1); break;
+    case SysScreen::About:
+    case SysScreen::Battery:
+    case SysScreen::Settings: sysGo(SysScreen::Menu, sysMenuIndex(sysScr)); break;
     case SysScreen::Clock:    sysGo(SysScreen::Settings, 0); break;
     case SysScreen::Zones:    sysGo(SysScreen::Clock, 1); break;
-    case SysScreen::Grey: {                                    // back to its row in Settings
+    case SysScreen::Grey:                                      // back to its row in the menu
       GreyCal::leave();
-      const std::vector<int> r = settingsRows();
-      sysGo(SysScreen::Settings, std::find(r.begin(), r.end(), (int)SET_GREY) - r.begin());
+      sysGo(SysScreen::Menu, sysMenuIndex(SysScreen::Grey));
       break;
-    }
   }
   return true;
 }
 
 static void sysActivate() {
   switch (sysScr) {
-    case SysScreen::Menu:
-      sysGo(sysSel == 0 ? SysScreen::About : SysScreen::Settings);
+    case SysScreen::Menu: {
+      const std::vector<SysScreen> m = sysMenu();
+      if (sysSel >= 0 && sysSel < (int)m.size()) sysGo(m[sysSel]);
+      break;
+    }
+    case SysScreen::Battery:                                   // Enter: take a reading now
+      Battery::measureNow();
+      AppMgr::requestRedraw(Refresh::Partial);
       break;
     case SysScreen::Settings: {
       const std::vector<int> rows = settingsRows();
@@ -1362,7 +1384,6 @@ static void sysActivate() {
         case SET_STYLE:  screen.setDeepFull(!screen.deepFull()); break;
         case SET_SOUND:  Sound::setEnabled(!Sound::enabled()); Sound::beep(); break;   // a beep to show it's on
         case SET_CLICK:  Sound::setClicks(!Sound::clicks()); break;
-        case SET_GREY:   sysGo(SysScreen::Grey); return;
         case SET_FAST:   screen.setFastMode((Screen::FastMode)((screen.fastMode() + 1) % 3)); break;
         case SET_FASTSTR: {
           const int n = sizeof(FAST_FRAME_CHOICES);
@@ -1425,9 +1446,9 @@ static void sysKey(uint8_t k) {
 }
 
 static void sysTick() {
-  if (sysScr != SysScreen::Clock && sysScr != SysScreen::About) return;
-  static String last;                            // keep the time and sync status current
-  const String now = Clock::syncStatus() + Clock::hhmm();
+  if (sysScr != SysScreen::Clock && sysScr != SysScreen::About && sysScr != SysScreen::Battery) return;
+  static String last;                            // keep the time, sync status and battery reading current
+  const String now = Clock::syncStatus() + Clock::hhmm() + Battery::label();
   if (now != last) { last = now; AppMgr::requestRedraw(Refresh::Partial); }
 }
 
@@ -1463,6 +1484,38 @@ static void sysDrawAbout() {
   screen.text(MARGIN, SCREEN_H - 10 * T, "Left=back", T);
 }
 
+static void sysDrawBattery() {
+  int y = BODY_Y + 3 * T;
+  auto row = [&](const String& label, const String& val) {
+    screen.text(MARGIN, y, menuRow(label, val).c_str(), T);
+    y += LINE_H;
+  };
+  if (!BATT_MONITOR) {
+    row("Battery meter", "off");
+    screen.text(MARGIN, y + LINE_H, "Set BATT_MONITOR 1 in config.h to use it.", T);
+  } else if (!Battery::present()) {
+    row("Battery", "none seen");
+    row("Pin voltage", String(Battery::pinVolts(), 2) + " V on GPIO " + String(PIN_BATT_ADC));
+    y += 4 * T;
+    screen.text(MARGIN, y, "Check the divider to the battery and its switch.", T);
+  } else {
+    static const char* names[] = { "Empty", "1/4", "1/2", "3/4", "Full" };
+    const int pct = Battery::percent();
+    // Charge bar: the whole width, filled to the percentage
+    const int bw = SCREEN_W - 2 * MARGIN, bh = 8 * T;
+    for (int i = 0; i < T; i++) screen.g().drawRect(MARGIN + i, y + i, bw - 2 * i, bh - 2 * i, INK);
+    screen.g().fillRect(MARGIN + 2 * T, y + 2 * T, (bw - 4 * T) * pct / 100, bh - 4 * T, INK);
+    y += bh + 3 * T;
+    row("Charge", String("about ") + pct + "%  (" + names[Battery::level()] + ")");
+    row("Voltage", String(Battery::volts(), 2) + " V");
+    row("Power", !Battery::usbSensed() ? String("(USB sense not wired)") : Battery::charging() ? String("USB, charging") : String("Battery"));
+    row("Shuts down at", String(BATT_SHUTDOWN_V, 2) + " V");
+    row("Pin voltage", String(Battery::pinVolts(), 3) + " V on GPIO " + String(PIN_BATT_ADC));
+    row("Last reading", String(Battery::sinceReadSec()) + " s ago, every " + String(BATT_READ_SEC) + " s");
+  }
+  screen.text(MARGIN, SCREEN_H - LINE_H, "Enter=measure now  Left=back", T);
+}
+
 static void sysDrawScreen() {
   std::vector<String> items;
   int y0 = BODY_Y + 2 * T;
@@ -1470,9 +1523,11 @@ static void sysDrawScreen() {
     case SysScreen::About:
       sysDrawAbout();
       return;
+    case SysScreen::Battery:
+      sysDrawBattery();
+      return;
     case SysScreen::Menu:
-      items.push_back(menuRow(SYS_MENU[0], ">"));
-      items.push_back(menuRow(SYS_MENU[1], ">"));
+      for (SysScreen s : sysMenu()) items.push_back(menuRow(sysMenuName(s), ">"));
       break;
     case SysScreen::Settings:
       for (int id : settingsRows()) {
@@ -1485,7 +1540,6 @@ static void sysDrawScreen() {
           case SET_STYLE:  right = screen.deepFull() ? "Deep (3 s)" : "Fast (1 s)"; break;
           case SET_SOUND:  right = Sound::enabled() ? "On" : "Off"; break;
           case SET_CLICK:  right = !Sound::enabled() ? "(sound off)" : Sound::clicks() ? "On" : "Off"; break;
-          case SET_GREY:   right = ">"; break;
           case SET_FAST:   right = fastModeLabel(screen.fastMode()); break;
           case SET_FASTSTR: right = String((screen.fastFrames() * 25 + 1) / 2) + " ms"; break;
         }

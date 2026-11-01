@@ -12,7 +12,7 @@
 //    43, 44        UART0 TX/RX
 // =====================================================================
 
-#define FW_VERSION "v0.37"
+#define FW_VERSION "v0.38"
 #define BRAND_NAME "InkDeck"
 
 // ---------------- Which display is plugged in ----------------
@@ -80,15 +80,15 @@
 #define EPD_ROTATION   1          // landscape; use 3 if the image is upside down
 
 // 3.7" only: pictures in 4 shades of grey (books converted with "4 greys").
-// Defaults, found with the InkDeck_GreyTest sketch; System > Settings > Grey
-// calibration changes them on the device. EPD_GREY_PICTURES 0 = black and white only.
+// Defaults, found with the InkDeck_GreyTest sketch; System > Screen calibration
+// changes them on the device. EPD_GREY_PICTURES 0 = black and white only.
 #define EPD_GREY_PICTURES  1
 #define EPD_GREY_LIGHT     2     // frames of darkening for light grey
 #define EPD_GREY_DARK      4     // ... dark grey
 #define EPD_GREY_BLACK    22     // ... black
 #define EPD_GREY_CLEAR    18     // length of each cleaning pulse
 #define EPD_GREY_REPEAT    1     // the "x" setting in the test sketch
-// Experimental 8 shades (Grey calibration > Shades 8). Starting guesses:
+// Experimental 8 shades (System > Screen calibration > Shades 8). Starting guesses:
 #define EPD_GREY8_LIGHT    2     // frames (20 ms) of darkening for level 2
 #define EPD_GREY8_DARK     3     // ... level 4
 #define EPD_GREY8_STEP1    3     // second pass, frames of 5 ms: one step darker (levels 1, 3, 5)

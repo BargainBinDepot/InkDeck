@@ -1,6 +1,6 @@
 #pragma once
 // =====================================================================
-//  Grey calibration (System > Settings > Grey calibration)
+//  Screen calibration (System > Screen calibration): grey shades
 //  A test picture for the 4-grey e-paper waveforms: the four shades, a ramp
 //  in 4 greys and in black and white, and a shaded ball dithered in each of
 //  the eReader converter's picture styles (Natural, Classic, Exact light),
