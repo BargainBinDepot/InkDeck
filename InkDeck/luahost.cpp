@@ -788,10 +788,10 @@ static bool jsonValue(lua_State* Ls, JsonIn& in, int depth) {
     if (!in.eat(']')) { in.err = "expected ']'"; return false; }
     return true;
   }
-  auto word = [&](const char* w) { const size_t n = strlen(w); if ((size_t)(in.end - in.p) >= n && !strncmp(in.p, w, n)) { in.p += n; return true; } return false; };
-  if (word("true"))  { lua_pushboolean(Ls, 1); return true; }
-  if (word("false")) { lua_pushboolean(Ls, 0); return true; }
-  if (word("null"))  { lua_pushnil(Ls); return true; }
+  auto literal = [&](const char* w) { const size_t n = strlen(w); if ((size_t)(in.end - in.p) >= n && !strncmp(in.p, w, n)) { in.p += n; return true; } return false; };
+  if (literal("true"))  { lua_pushboolean(Ls, 1); return true; }
+  if (literal("false")) { lua_pushboolean(Ls, 0); return true; }
+  if (literal("null"))  { lua_pushnil(Ls); return true; }
   // A number: integers stay integers
   const char* s = in.p;
   bool isFloat = false;
