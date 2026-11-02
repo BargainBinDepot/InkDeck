@@ -4,6 +4,7 @@
 #include "ui.h"
 #include "webui.h"
 #include "clock.h"
+#include "net.h"
 #include "esp_sleep.h"
 #include "sound.h"
 #include "storage.h"
@@ -157,7 +158,7 @@ void begin() {
 void loop() {
   // Every BATT_READ_SEC, and not while WiFi is on: its current spikes pull the voltage down
   if (millis() - lastRead < BATT_READ_SEC * 1000UL && lastRead) return;
-  if (WebUI::mode() != WebUI::Mode::Off || Clock::busy()) { lastRead = millis(); return; }
+  if (WebUI::mode() != WebUI::Mode::Off || Clock::busy() || Net::busy()) { lastRead = millis(); return; }
   measureNow();
   if (critical()) shutDown(true);
 }

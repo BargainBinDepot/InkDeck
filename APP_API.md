@@ -189,6 +189,26 @@ Pick `cols`/`rows` from the font you draw with, e.g. `local cw, lh = screen.font
 
 Standard Lua available: `string`, `table`, `math`, `utf8`, `coroutine`, plus `load`, `pcall`, `pairs` etc. There's no `io`, `os`, `dofile` or `require`: use `file` instead.
 
+## net
+
+Internet over the WiFi saved in the Uploader (firmware v0.41+). Calls block until they finish (up to ~20 s) and don't count against the app's time limit; draw a "please wait" screen first (do the work in `tick()` after it's shown). WiFi is turned off again when the app closes. HTTPS certificates aren't checked, so use it for public data only.
+
+| Call | Does |
+|---|---|
+| `net.connect()` | Join the saved WiFi (up to 15 s). `true`, or `nil, why` (no WiFi saved, can't join, the Uploader is using WiFi) |
+| `net.disconnect()` | WiFi off again |
+| `net.online()` | Connected? |
+| `net.get(url [, maxBytes])` | Fetch a page: the body as a string (default limit 256 KB, at most 512 KB), or `nil, why` |
+| `net.download(url, name)` | Save straight to a file in the app's folder (any size): bytes written, or `nil, why` |
+
+## json
+
+| Call | Does |
+|---|---|
+| `json.decode(str)` | Objects and arrays become tables (arrays from 1), `null` becomes `nil`. Returns the value, or `nil, why` |
+
+`text.gutenberg(src, dst [, title, author])` (in the `text` table) turns a Project Gutenberg plain-text download into an eReader book: licence text removed, paragraphs rejoined, chapter headings marked, accents as plain ASCII. Returns the number of chapters found, or `nil, why`.
+
 ## Limits
 
 - Each app gets up to **1 MB** of memory (config: `LUA_MEM_LIMIT_KB`).

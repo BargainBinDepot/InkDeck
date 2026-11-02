@@ -8,6 +8,7 @@
 #include "textengine.h"
 #include "power.h"
 #include "icons.h"
+#include "net.h"
 #include <map>
 #include "clock.h"
 #include "battery.h"
@@ -615,8 +616,210 @@ static int l_page(lua_State* Ls) {
   return 1;
 }
 
+// text.gutenberg(src, dst, title, author) -> chapters found, or nil, why
+// A Project Gutenberg plain-text download as an eReader book (see net.h)
+static int l_gutenberg(lua_State* Ls) {
+  String src, dst, err;
+  if (!appPath(luaL_checkstring(Ls, 1), src) || !appPath(luaL_checkstring(Ls, 2), dst)) return fail(Ls, "bad file name");
+  uint32_t chapters = 0;
+  const bool ok = Gutenberg::convert(src, dst, luaL_optstring(Ls, 3, ""), luaL_optstring(Ls, 4, ""), err, &chapters);
+  callStart = millis();                        // a big book takes a while: not the app's fault
+  if (!ok) return fail(Ls, err.c_str());
+  lua_pushinteger(Ls, chapters);
+  return 1;
+}
+
 static const luaL_Reg textLib[] = {
-  { "paginate", l_paginate }, { "page", l_page },
+  { "paginate", l_paginate }, { "page", l_page }, { "gutenberg", l_gutenberg },
+  { nullptr, nullptr }
+};
+
+// =====================================================================
+//  API: net — the internet over the saved WiFi (see net.h). Calls block
+//  while they run and don't count against the app's time limit.
+// =====================================================================
+// net.connect() -> true, or nil, why
+static int l_connect(lua_State* Ls) {
+  String err;
+  const bool ok = Net::connect(err);
+  callStart = millis();
+  if (!ok) return fail(Ls, err.c_str());
+  lua_pushboolean(Ls, 1);
+  return 1;
+}
+static int l_disconnect(lua_State*)  { Net::disconnect(); return 0; }
+static int l_online(lua_State* Ls)   { lua_pushboolean(Ls, Net::online()); return 1; }
+
+// net.get(url [, maxBytes]) -> body, or nil, why   (default 256 KB, at most 512 KB)
+static int l_get(lua_State* Ls) {
+  const char* url = luaL_checkstring(Ls, 1);
+  const size_t maxBytes = std::min(std::max(optNum(Ls, 2, 262144), 1024), 524288);
+  String body, err;
+  const bool ok = Net::get(url, body, maxBytes, err);
+  callStart = millis();
+  if (!ok) return fail(Ls, err.c_str());
+  lua_pushlstring(Ls, body.c_str(), body.length());
+  return 1;
+}
+
+// net.download(url, name) -> bytes, or nil, why   (name in the app's folder)
+static int l_download(lua_State* Ls) {
+  const char* url = luaL_checkstring(Ls, 1);
+  String p, err;
+  if (!appPath(luaL_checkstring(Ls, 2), p)) return fail(Ls, "bad file name");
+  const long n = Net::download(url, p, err);
+  callStart = millis();
+  if (n < 0) return fail(Ls, err.c_str());
+  lua_pushinteger(Ls, n);
+  return 1;
+}
+
+static const luaL_Reg netLib[] = {
+  { "connect", l_connect }, { "disconnect", l_disconnect }, { "online", l_online },
+  { "get", l_get }, { "download", l_download },
+  { nullptr, nullptr }
+};
+
+// =====================================================================
+//  API: json.decode(text) -> value, or nil, why. Objects and arrays become
+//  tables (arrays from 1); null becomes nil.
+// =====================================================================
+struct JsonIn {
+  const char* p;
+  const char* end;
+  const char* err = nullptr;
+  void ws() { while (p < end && (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r')) p++; }
+  bool eat(char c) { ws(); if (p < end && *p == c) { p++; return true; } return false; }
+};
+
+static void jsonUtf8(luaL_Buffer& b, uint32_t c) {
+  if (c < 0x80) luaL_addchar(&b, (char)c);
+  else if (c < 0x800) { luaL_addchar(&b, (char)(0xC0 | (c >> 6))); luaL_addchar(&b, (char)(0x80 | (c & 0x3F))); }
+  else if (c < 0x10000) {
+    luaL_addchar(&b, (char)(0xE0 | (c >> 12))); luaL_addchar(&b, (char)(0x80 | ((c >> 6) & 0x3F)));
+    luaL_addchar(&b, (char)(0x80 | (c & 0x3F)));
+  } else {
+    luaL_addchar(&b, (char)(0xF0 | (c >> 18))); luaL_addchar(&b, (char)(0x80 | ((c >> 12) & 0x3F)));
+    luaL_addchar(&b, (char)(0x80 | ((c >> 6) & 0x3F))); luaL_addchar(&b, (char)(0x80 | (c & 0x3F)));
+  }
+}
+
+static bool jsonHex4(JsonIn& in, uint32_t& v) {
+  if (in.end - in.p < 4) return false;
+  v = 0;
+  for (int i = 0; i < 4; i++) {
+    const char c = *in.p++;
+    v <<= 4;
+    if (c >= '0' && c <= '9') v |= c - '0';
+    else if (c >= 'a' && c <= 'f') v |= c - 'a' + 10;
+    else if (c >= 'A' && c <= 'F') v |= c - 'A' + 10;
+    else return false;
+  }
+  return true;
+}
+
+static bool jsonString(lua_State* Ls, JsonIn& in) {     // at the opening quote
+  in.p++;
+  luaL_Buffer b;
+  luaL_buffinit(Ls, &b);
+  while (in.p < in.end && *in.p != '"') {
+    char c = *in.p++;
+    if (c != '\\') { luaL_addchar(&b, c); continue; }
+    if (in.p >= in.end) break;
+    c = *in.p++;
+    switch (c) {
+      case 'n': luaL_addchar(&b, '\n'); break;
+      case 't': luaL_addchar(&b, '\t'); break;
+      case 'r': luaL_addchar(&b, '\r'); break;
+      case 'b': luaL_addchar(&b, '\b'); break;
+      case 'f': luaL_addchar(&b, '\f'); break;
+      case 'u': {
+        uint32_t v;
+        if (!jsonHex4(in, v)) { in.err = "bad \\u escape"; return false; }
+        if (v >= 0xD800 && v < 0xDC00 && in.end - in.p >= 6 && in.p[0] == '\\' && in.p[1] == 'u') {
+          in.p += 2;
+          uint32_t lo;
+          if (!jsonHex4(in, lo)) { in.err = "bad \\u escape"; return false; }
+          v = 0x10000 + ((v - 0xD800) << 10) + (lo - 0xDC00);
+        }
+        jsonUtf8(b, v);
+        break;
+      }
+      default: luaL_addchar(&b, c);                          // \" \\ \/
+    }
+  }
+  if (in.p >= in.end) { in.err = "unfinished string"; return false; }
+  in.p++;
+  luaL_pushresult(&b);
+  return true;
+}
+
+static bool jsonValue(lua_State* Ls, JsonIn& in, int depth) {
+  if (depth > 32) { in.err = "nested too deeply"; return false; }
+  if (!lua_checkstack(Ls, 4)) { in.err = "out of memory"; return false; }
+  in.ws();
+  if (in.p >= in.end) { in.err = "unexpected end"; return false; }
+  const char c = *in.p;
+  if (c == '"') return jsonString(Ls, in);
+  if (c == '{') {
+    in.p++;
+    lua_newtable(Ls);
+    if (in.eat('}')) return true;
+    do {
+      in.ws();
+      if (in.p >= in.end || *in.p != '"') { in.err = "expected a name"; return false; }
+      if (!jsonString(Ls, in)) return false;
+      if (!in.eat(':')) { in.err = "expected ':'"; return false; }
+      if (!jsonValue(Ls, in, depth + 1)) return false;
+      lua_rawset(Ls, -3);
+    } while (in.eat(','));
+    if (!in.eat('}')) { in.err = "expected '}'"; return false; }
+    return true;
+  }
+  if (c == '[') {
+    in.p++;
+    lua_newtable(Ls);
+    if (in.eat(']')) return true;
+    lua_Integer i = 1;
+    do {
+      if (!jsonValue(Ls, in, depth + 1)) return false;
+      lua_rawseti(Ls, -2, i++);
+    } while (in.eat(','));
+    if (!in.eat(']')) { in.err = "expected ']'"; return false; }
+    return true;
+  }
+  auto word = [&](const char* w) { const size_t n = strlen(w); if ((size_t)(in.end - in.p) >= n && !strncmp(in.p, w, n)) { in.p += n; return true; } return false; };
+  if (word("true"))  { lua_pushboolean(Ls, 1); return true; }
+  if (word("false")) { lua_pushboolean(Ls, 0); return true; }
+  if (word("null"))  { lua_pushnil(Ls); return true; }
+  // A number: integers stay integers
+  const char* s = in.p;
+  bool isFloat = false;
+  while (in.p < in.end && strchr("+-0123456789.eE", *in.p)) { if (strchr(".eE", *in.p)) isFloat = true; in.p++; }
+  if (in.p == s) { in.err = "unexpected character"; return false; }
+  const String n(s, in.p - s);
+  if (isFloat) lua_pushnumber(Ls, strtod(n.c_str(), nullptr));
+  else         lua_pushinteger(Ls, strtoll(n.c_str(), nullptr, 10));
+  return true;
+}
+
+static int l_jsondecode(lua_State* Ls) {
+  size_t len;
+  const char* text = luaL_checklstring(Ls, 1, &len);
+  JsonIn in{ text, text + len };
+  const int top = lua_gettop(Ls);
+  const bool ok = jsonValue(Ls, in, 0);
+  callStart = millis();
+  if (!ok) {
+    lua_settop(Ls, top);
+    String why = String("JSON: ") + in.err + " at byte " + String((unsigned)(in.p - text));
+    return fail(Ls, why.c_str());
+  }
+  return 1;
+}
+
+static const luaL_Reg jsonLib[] = {
+  { "decode", l_jsondecode },
   { nullptr, nullptr }
 };
 
@@ -658,6 +861,12 @@ static void openLibs() {
 
   luaL_newlib(L, textLib);
   lua_setglobal(L, "text");
+
+  luaL_newlib(L, netLib);
+  lua_setglobal(L, "net");
+
+  luaL_newlib(L, jsonLib);
+  lua_setglobal(L, "json");
 
   lua_createtable(L, 0, 8);
   setIntField("LEFT", K_LEFT);   setIntField("RIGHT", K_RIGHT);
@@ -715,6 +924,7 @@ void close() {
   Power::keepAwake(false);                     // an app's stay-awake request ends with the app
   Sound::stop();                               // and so does its tune
   screen.setFastHint(false);                   // and its fast refresh request
+  Net::disconnect();                           // and its WiFi
   if (L) {
     lua_close(L);
     L = nullptr;

@@ -11,6 +11,10 @@
 --            . and , = 10 pages   > and < = 50 pages
 --            Enter = menu (chapters, go to page, font, invert)
 --            c = chapters   g = go to page   Esc = library
+--
+--  Get books: browse and search Project Gutenberg's free books (via the
+--  Gutendex catalogue) over the saved WiFi; a download is turned into a
+--  book on the device (text.gutenberg).
 -- =====================================================================
 
 local BOOKS = "books"
@@ -28,6 +32,7 @@ local settings = { font = 2, invert = false, last = "" }
 local progress = {}             -- book name -> { offset = byte offset, pct = percent }
 
 local mode = "list"             -- list | read | menu | chapters | goto | settings | delete | indexing
+                                -- | store | search | results | info | busy (Get books)
 local books, sel, top = {}, 1, 1
 local book = nil                -- the open book
 local turnsSinceSave = 0
@@ -90,6 +95,7 @@ local function scanBooks()
     end
   end
   table.sort(books, function(a, b) return a.title:lower() < b.title:lower() end)
+  books[#books + 1] = { store = true, title = "[Get free books]" }
   books[#books + 1] = { settings = true, title = "[Settings]" }
   if sel > #books then sel = #books end
 end
@@ -292,6 +298,140 @@ local function cycleFont()
 end
 
 -- ---------------------------------------------------------------------
+--  Get books: Project Gutenberg through the Gutendex catalogue
+-- ---------------------------------------------------------------------
+local CATALOGUE = "https://gutendex.com/books/?languages=en&mime_type=text%2Fplain"
+local SHELVES = {                -- the store's front page: label, and Gutendex topic (nil = most popular)
+  { label = "Search title or author..." },
+  { label = "Most popular", topic = "" },
+  { label = "Adventure", topic = "adventure" },
+  { label = "Science fiction", topic = "science fiction" },
+  { label = "Mystery & detective", topic = "detective" },
+  { label = "Romance", topic = "love stories" },
+  { label = "Horror & ghost stories", topic = "horror" },
+  { label = "Humour", topic = "humor" },
+  { label = "Children's books", topic = "children" },
+  { label = "Fairy tales & myths", topic = "fairy tales" },
+  { label = "Poetry", topic = "poetry" },
+  { label = "Plays", topic = "drama" },
+  { label = "History", topic = "history" },
+  { label = "Philosophy", topic = "philosophy" },
+}
+local storeSel, storeTop = 1, 1
+local searchText = ""
+local results = { list = {}, next = nil, heading = "" }
+local resSel, resTop = 1, 1
+local job = nil                  -- { msg = ..., run = function } shown first, then run in tick()
+local jobShown = false
+local storeMsg = nil
+
+local function urlEncode(s)
+  return (s:gsub("[^%w%-_%.~]", function(c) return string.format("%%%02X", c:byte()) end))
+end
+
+-- "Austen, Jane" -> "Jane Austen"
+local function authorName(a)
+  if not a or not a.name then return "" end
+  local last, first = a.name:match("^([^,]+),%s*(.+)$")
+  return last and (first .. " " .. last) or a.name
+end
+
+-- The plain-text edition (UTF-8 if there is one); Gutenberg's own path otherwise
+local function textUrl(b)
+  local best
+  for k, v in pairs(b.formats or {}) do
+    if type(v) == "string" and k:find("^text/plain") and not v:find("%.zip$") then
+      if k:find("utf%-8") then return v end
+      best = best or v
+    end
+  end
+  return best or ("https://www.gutenberg.org/cache/epub/" .. b.id .. "/pg" .. b.id .. ".txt")
+end
+
+local function runJob(msg, fn)
+  job = { msg = msg, run = fn }
+  jobShown = false
+  mode = "busy"
+end
+
+-- One page of the catalogue; `more` adds it to the list already shown
+local function fetchResults(url, heading, more)
+  runJob(more and "Loading more..." or "Looking up books...", function()
+    local ok, err = net.connect()
+    if not ok then storeMsg = err; mode = more and "results" or "store"; return end
+    local body, err2 = net.get(url)
+    if not body then storeMsg = err2; mode = more and "results" or "store"; return end
+    local data, err3 = json.decode(body)
+    body = nil
+    if not data or type(data.results) ~= "table" then
+      storeMsg = err3 or "The catalogue sent something odd"
+      mode = more and "results" or "store"
+      return
+    end
+    if not more then results = { list = {}, heading = heading }; resSel, resTop = 1, 1 end
+    for _, b in ipairs(data.results) do
+      local a = b.authors and b.authors[1]
+      local subjects = {}
+      for i, sub in ipairs(b.subjects or {}) do if i <= 3 then subjects[#subjects + 1] = sub end end
+      results.list[#results.list + 1] = {
+        id = b.id, title = (b.title or "?"):gsub("%s+", " "), author = authorName(a),
+        surname = a and a.name and a.name:match("^([^,]+)") or "",
+        downloads = b.download_count or 0, url = textUrl(b), subjects = subjects,
+      }
+    end
+    results.next = type(data["next"]) == "string" and data["next"] or nil
+    results.total = data.count
+    storeMsg = #results.list == 0 and "No books found" or nil
+    mode = #results.list == 0 and "store" or "results"
+  end)
+end
+
+-- A file name from the title: "Frankenstein; Or, The Modern..." -> "Frankenstein.txt"
+local function bookFileName(b)
+  local t = b.title:gsub("[;:].*$", "")
+  t = t:gsub("[^%w%s%-']", ""):gsub("%s+", "_"):sub(1, 60)
+  if t == "" then t = "Gutenberg_" .. b.id end
+  if file.exists(BOOKS .. "/" .. t .. ".txt") then t = t .. "_" .. b.id end
+  return t .. ".txt"
+end
+
+local function downloadBook(b)
+  runJob("Downloading " .. b.title, function()
+    local ok, err = net.connect()
+    if not ok then storeMsg = err; mode = "info"; return end
+    local tmp = CACHE .. "/gutenberg.download"
+    local n, err2 = net.download(b.url, tmp)
+    if not n then storeMsg = "Download failed: " .. err2; mode = "info"; return end
+    local name = bookFileName(b)
+    local chapters, err3 = text.gutenberg(tmp, BOOKS .. "/" .. name, b.title, b.author)
+    file.remove(tmp)
+    if not chapters then storeMsg = err3; mode = "info"; return end
+    net.disconnect()
+    sys.stayawake(false)
+    scanBooks()
+    for i, bk in ipairs(books) do if bk.name == name then sel = i end end
+    message = "Added: " .. b.title .. (chapters > 0 and " (" .. chapters .. " chapters)" or "")
+    mode = "list"
+  end)
+end
+
+local function openStore()
+  if not net or not json then                -- the app is newer than the firmware
+    message = "Get books needs InkDeck firmware v0.41 or newer"
+    return
+  end
+  storeMsg = nil
+  sys.stayawake(true)            -- WiFi stays on while browsing: don't fall asleep on it
+  mode = "store"
+end
+
+local function closeStore()
+  net.disconnect()
+  sys.stayawake(false)
+  mode = "list"
+end
+
+-- ---------------------------------------------------------------------
 --  Drawing helpers
 -- ---------------------------------------------------------------------
 local function fit(s, n)
@@ -344,6 +484,13 @@ function init()
 end
 
 function tick()
+  if mode == "busy" and jobShown and job then
+    local j = job
+    j.run()
+    job = nil
+    screen.redraw(true)
+    return
+  end
   if mode == "indexing" and indexingShown then
     local p = pending
     pending = nil
@@ -361,7 +508,52 @@ function tick()
 end
 
 function key(k, ch)
-  if mode == "indexing" then return false end
+  if mode == "indexing" or mode == "busy" then return false end
+
+  if mode == "store" then
+    storeMsg = nil
+    local n = #SHELVES
+    if k == keys.UP then storeSel = storeSel > 1 and storeSel - 1 or n
+    elseif k == keys.DOWN then storeSel = storeSel < n and storeSel + 1 or 1
+    elseif k == keys.ENTER or k == keys.RIGHT then
+      local sh = SHELVES[storeSel]
+      if not sh.topic then mode = "search"
+      elseif sh.topic == "" then fetchResults(CATALOGUE, sh.label)
+      else fetchResults(CATALOGUE .. "&topic=" .. urlEncode(sh.topic), sh.label) end
+    elseif ch == "/" or ch == "s" then mode = "search"
+    else return false end
+    return
+  end
+
+  if mode == "search" then
+    if k == keys.ENTER then
+      local q = searchText:match("^%s*(.-)%s*$")
+      if q ~= "" then fetchResults(CATALOGUE .. "&search=" .. urlEncode(q), "\"" .. q .. "\"") end
+    elseif k == keys.BKSP then searchText = searchText:sub(1, -2)
+    elseif ch and #ch == 1 and ch:byte() >= 32 and #searchText < 40 then searchText = searchText .. ch
+    else return false end
+    return
+  end
+
+  if mode == "results" then
+    storeMsg = nil
+    local n = #results.list + (results.next and 1 or 0)
+    if k == keys.UP then resSel = resSel > 1 and resSel - 1 or n
+    elseif k == keys.DOWN then resSel = resSel < n and resSel + 1 or 1
+    elseif k == keys.ENTER or k == keys.RIGHT then
+      if resSel > #results.list then fetchResults(results.next, results.heading, true)
+      else mode = "info" end
+    else return false end
+    return
+  end
+
+  if mode == "info" then
+    storeMsg = nil
+    if k == keys.ENTER then downloadBook(results.list[resSel])
+    elseif k == keys.LEFT then mode = "results"
+    else return false end
+    return
+  end
 
   if mode == "list" then
     message = nil
@@ -369,8 +561,9 @@ function key(k, ch)
     elseif k == keys.DOWN then sel = sel < #books and sel + 1 or 1
     elseif k == keys.ENTER then
       if books[sel].settings then mode = "settings"; setSel = 1
+      elseif books[sel].store then openStore()
       else openBook(books[sel].name) end
-    elseif k == keys.BKSP and not books[sel].settings then
+    elseif k == keys.BKSP and not books[sel].settings and not books[sel].store then
       delYes = false
       mode = "delete"
     else return false end
@@ -470,6 +663,11 @@ end
 
 function back()
   if mode == "list" then return false end                 -- leave the app
+  if mode == "busy" then return true end                   -- wait for it
+  if mode == "store" then closeStore(); return true end
+  if mode == "search" then mode = "store"; return true end
+  if mode == "results" then mode = "store"; storeMsg = nil; return true end
+  if mode == "info" then mode = "results"; storeMsg = nil; return true end
   if mode == "read" then closeBook()
   elseif mode == "menu" or mode == "chapters" or mode == "goto" then mode = "read"; updateTitle()
   elseif mode == "settings" or mode == "delete" then mode = "list"
@@ -482,10 +680,10 @@ end
 -- ---------------------------------------------------------------------
 local function drawLibrary()
   local y0 = header("MY BOOKS")
-  if #books <= 1 then
-    screen.text(screen.margin, y0 + screen.lh, "No books yet.")
-    screen.text(screen.margin, y0 + 2 * screen.lh, "Upload them from the Books tab")
-    screen.text(screen.margin, y0 + 3 * screen.lh, "in the Uploader app.")
+  if #books <= 2 then
+    screen.text(screen.margin, y0 + screen.lh, "No books yet. Upload them from the")
+    screen.text(screen.margin, y0 + 2 * screen.lh, "Books tab in the Uploader app, or")
+    screen.text(screen.margin, y0 + 3 * screen.lh, "pick [Get free books] below.")
     y0 = y0 + 5 * screen.lh
   end
   local items = {}
@@ -601,6 +799,71 @@ local function drawDelete()
   footer("Left/Right=choose  Enter=confirm")
 end
 
+local function drawStore()
+  local y0 = header("GET FREE BOOKS  (Project Gutenberg)")
+  local items = {}
+  for _, sh in ipairs(SHELVES) do items[#items + 1] = sh.label end
+  local rows = listRowsFrom(y0)
+  if storeMsg then rows = rows - 1 end
+  storeTop = drawList(items, storeSel, storeTop, y0, rows)
+  if storeMsg then screen.text(screen.margin, screen.H - 2 * screen.lh + screen.scale, fit(storeMsg, screen.cols)) end
+  footer("Enter=open  s=search  Esc=back")
+end
+
+local function drawSearch()
+  local s = screen.scale
+  local y0 = header("Search Project Gutenberg")
+  screen.text(screen.margin, y0 + screen.lh, "Title or author:")
+  local boxY = y0 + 2 * screen.lh + 2 * s
+  local boxH = screen.lh + 4 * s
+  screen.rect(screen.margin, boxY, screen.W - 2 * screen.margin, boxH)
+  local shown = fit(searchText, screen.cols - 3)
+  screen.text(2 * screen.margin, boxY + 3 * s, shown)
+  screen.rect(2 * screen.margin + #shown * screen.cw, boxY + 3 * s, 5 * s, screen.ch, true)
+  screen.text(screen.margin, boxY + boxH + screen.lh, "e.g.  sherlock   austen   time machine")
+  footer("Enter=search  Esc=back")
+end
+
+local function drawResults()
+  local head = results.heading .. (results.total and "  (" .. results.total .. ")" or "")
+  local y0 = header(fit(head, screen.cols))
+  local items = {}
+  for _, b in ipairs(results.list) do
+    local by = b.surname ~= "" and ("  " .. b.surname) or ""
+    local room = screen.cols - 2
+    if #b.title + #by > room then by = by:sub(1, math.max(0, room // 3)) end
+    items[#items + 1] = fit(b.title, room - #by) .. by
+  end
+  if results.next then items[#items + 1] = "[More results...]" end
+  local rows = listRowsFrom(y0)
+  if storeMsg then rows = rows - 1 end
+  resTop = drawList(items, resSel, resTop, y0, rows)
+  if storeMsg then screen.text(screen.margin, screen.H - 2 * screen.lh + screen.scale, fit(storeMsg, screen.cols)) end
+  footer("Enter=details  Esc=back")
+end
+
+local function drawInfo()
+  local b = results.list[resSel]
+  local y = header("Book details")
+  local function line(t) screen.text(screen.margin, y, t); y = y + screen.lh end
+  for i, l in ipairs(screen.wrap(b.title, screen.cols)) do if i <= 3 then line(l) end end
+  if b.author ~= "" then line(fit("by " .. b.author, screen.cols)) end
+  y = y + screen.scale * 2
+  line(b.downloads .. " recent downloads")
+  for _, sub in ipairs(b.subjects) do line(fit("- " .. sub, screen.cols)) end
+  if storeMsg then screen.text(screen.margin, screen.H - 2 * screen.lh + screen.scale, fit(storeMsg, screen.cols)) end
+  footer("Enter=download  Esc=back")
+end
+
+local function drawBusy()
+  local mid = screen.top + (screen.H - screen.top) // 2
+  for i, l in ipairs(screen.wrap(job and job.msg or "Working...", screen.cols)) do
+    if i <= 2 then screen.center(mid - 2 * screen.lh + i * screen.lh, l) end
+  end
+  screen.center(mid + 2 * screen.lh, "(this can take a minute)")
+  jobShown = true
+end
+
 local function drawIndexing()
   local mid = screen.top + (screen.H - screen.top) // 2
   screen.center(mid - screen.lh, "Building index...")
@@ -618,6 +881,11 @@ function draw()
   elseif mode == "settings" then drawSettings()
   elseif mode == "delete"   then drawDelete()
   elseif mode == "indexing" then drawIndexing()
+  elseif mode == "store"    then drawStore()
+  elseif mode == "search"   then drawSearch()
+  elseif mode == "results"  then drawResults()
+  elseif mode == "info"     then drawInfo()
+  elseif mode == "busy"     then drawBusy()
   end
   if settings.invert then
     screen.invert(0, screen.top, screen.W, screen.H - screen.top)

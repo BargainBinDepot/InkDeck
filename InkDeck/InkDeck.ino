@@ -1,5 +1,5 @@
 // =====================================================================
-//  InkDeck firmware v0.40
+//  InkDeck firmware v0.41
 //  ESP32-S3 + CardKB + e-paper (or the ST7789 TFT preview)
 //
 //  v0.1   display HAL, CardKB input, paged launcher, app framework
@@ -93,6 +93,9 @@
 //         lost when the panel sleeps, which left old pixels such as icons
 //         behind). System > Battery: Left/Right calibrate the voltage against
 //         a multimeter (saved in /system/battery.txt).
+//  v0.41  Lua: net (WiFi, HTTPS get/download), json.decode, text.gutenberg.
+//         eReader 2.0: [Get free books] browses and searches Project
+//         Gutenberg and downloads books straight to the device.
 //
 //  Arduino IDE (ESP32S3 Dev Module): Flash Size 16MB, Partition Scheme
 //  "16M Flash (3MB APP/9.9MB FATFS)", PSRAM "OPI PSRAM", USB CDC On Boot
