@@ -27,6 +27,9 @@ long download(const String& url, const String& path, String& err);
 
 namespace Gutenberg {
 
+void ascii(String& s, uint32_t c);      // one Unicode character as plain ASCII, appended
+String asciiOf(const String& utf8);     // UTF-8 text as plain ASCII
+
 // src: the downloaded .txt; dst: the book for the eReader. title/author go on top.
 bool convert(const String& src, const String& dst, const String& title, const String& author,
              String& err, uint32_t* chapters = nullptr);

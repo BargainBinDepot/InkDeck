@@ -9,6 +9,7 @@
 #include "power.h"
 #include "icons.h"
 #include "net.h"
+#include "epub.h"
 #include <map>
 #include "clock.h"
 #include "battery.h"
@@ -629,8 +630,21 @@ static int l_gutenberg(lua_State* Ls) {
   return 1;
 }
 
+// text.epub(src, dst, title, author) -> chapters found, or nil, why
+// An EPUB as an eReader book, on the device (no pictures yet; see epub.h)
+static int l_epub(lua_State* Ls) {
+  String src, dst, err;
+  if (!appPath(luaL_checkstring(Ls, 1), src) || !appPath(luaL_checkstring(Ls, 2), dst)) return fail(Ls, "bad file name");
+  uint32_t chapters = 0;
+  const bool ok = Epub::convert(src, dst, luaL_optstring(Ls, 3, ""), luaL_optstring(Ls, 4, ""), err, &chapters);
+  callStart = millis();
+  if (!ok) return fail(Ls, err.c_str());
+  lua_pushinteger(Ls, chapters);
+  return 1;
+}
+
 static const luaL_Reg textLib[] = {
-  { "paginate", l_paginate }, { "page", l_page }, { "gutenberg", l_gutenberg },
+  { "paginate", l_paginate }, { "page", l_page }, { "gutenberg", l_gutenberg }, { "epub", l_epub },
   { nullptr, nullptr }
 };
 

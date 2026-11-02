@@ -155,7 +155,7 @@ namespace Gutenberg {
 
 // One Unicode character as plain ASCII (the same choices as the converter's
 // transliterate(); the book fonts only have ASCII)
-static void ascii(String& s, uint32_t c) {
+void ascii(String& s, uint32_t c) {
   if (c == '\t') { s += ' '; return; }
   if (c < 0x20) return;                                      // control codes (and our \x01 \x02 markers)
   if (c < 0x80) { s += (char)c; return; }
@@ -199,7 +199,7 @@ static void ascii(String& s, uint32_t c) {
 }
 
 // UTF-8 text as plain ASCII
-static String asciiOf(const String& in) {
+String asciiOf(const String& in) {
   String out;
   const uint8_t* p = (const uint8_t*)in.c_str();
   while (*p) {

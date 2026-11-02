@@ -342,6 +342,11 @@ local function cacheUrl(id)
   return "https://www.gutenberg.org/cache/epub/" .. id .. "/pg" .. id .. ".txt"
 end
 
+-- The EPUB without pictures: real chapter names and paragraphs, so it's tried first
+local function epubUrl(id)
+  return "https://www.gutenberg.org/cache/epub/" .. id .. "/pg" .. id .. ".epub"
+end
+
 local function textUrl(b)
   local best
   for k, v in pairs(b.formats or {}) do
@@ -404,14 +409,26 @@ local function downloadBook(b)
   runJob("Downloading " .. b.title, function()
     local ok, err = net.connect()
     if not ok then storeMsg = err; mode = "info"; return end
-    local tmp = CACHE .. "/gutenberg.download"
-    local n, err2 = net.download(b.url, tmp)
-    if not n and b.alt then n, err2 = net.download(b.alt, tmp) end
-    if not n then storeMsg = "Download failed: " .. err2; mode = "info"; return end
     local name = bookFileName(b)
-    local chapters, err3 = text.gutenberg(tmp, BOOKS .. "/" .. name, b.title, b.author)
-    file.remove(tmp)
-    if not chapters then storeMsg = err3; mode = "info"; return end
+    local chapters, err3
+    -- 1. The EPUB, converted on the device (firmware v0.42+)
+    if text.epub then
+      local tmp = CACHE .. "/gutenberg.epub"
+      if net.download(epubUrl(b.id), tmp) then
+        chapters, err3 = text.epub(tmp, BOOKS .. "/" .. name, b.title, b.author)
+        file.remove(tmp)
+      end
+    end
+    -- 2. Otherwise the plain text
+    if not chapters then
+      local tmp = CACHE .. "/gutenberg.download"
+      local n, err2 = net.download(b.url, tmp)
+      if not n and b.alt then n, err2 = net.download(b.alt, tmp) end
+      if not n then storeMsg = "Download failed: " .. (err3 or err2); mode = "info"; return end
+      chapters, err3 = text.gutenberg(tmp, BOOKS .. "/" .. name, b.title, b.author)
+      file.remove(tmp)
+      if not chapters then storeMsg = err3; mode = "info"; return end
+    end
     net.disconnect()
     sys.stayawake(false)
     scanBooks()

@@ -207,6 +207,8 @@ Internet over the WiFi saved in the Uploader (firmware v0.41+). Calls block unti
 |---|---|
 | `json.decode(str)` | Objects and arrays become tables (arrays from 1), `null` becomes `nil`. Returns the value, or `nil, why` |
 
+`text.epub(src, dst [, title, author])` (v0.42+) turns an EPUB into an eReader book on the device: reading order from the OPF, a chapter for each h1-h3 heading, Gutenberg's licence pages left out, no pictures. Returns the number of chapters, or `nil, why`.
+
 `text.gutenberg(src, dst [, title, author])` (in the `text` table) turns a Project Gutenberg plain-text download into an eReader book: licence text removed, paragraphs rejoined, chapter headings marked, accents as plain ASCII. Returns the number of chapters found, or `nil, why`.
 
 ## Limits
