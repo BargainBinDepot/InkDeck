@@ -77,29 +77,56 @@ private:
   size_t lastKb = 0;
 };
 
-// One GET into a sink; err says why if it fails
+// "/cache/x.txt" or "x.txt" against the page that sent us there
+static String resolve(const String& base, const String& loc) {
+  if (loc.startsWith("http://") || loc.startsWith("https://")) return loc;
+  const int hostEnd = base.indexOf('/', base.indexOf("//") + 2);
+  const String origin = hostEnd < 0 ? base : base.substring(0, hostEnd);
+  if (loc.startsWith("/")) return origin + loc;
+  const int q = base.indexOf('?');
+  const String path = q < 0 ? base : base.substring(0, q);
+  return path.substring(0, path.lastIndexOf('/') + 1) + loc;
+}
+
+// One GET into a sink, following redirects ourselves (HTTPClient's own
+// following can't change host or go from one secure connection to another);
+// err says why if it fails
 static long fetch(const String& url, Sink& sink, String& err) {
   if (!online()) { err = "Not online"; return -1; }
-  WiFiClientSecure client;
-  client.setInsecure();                 // public pages and books: no certificate store on the device
-  HTTPClient http;
-  http.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
-  http.setTimeout(20000);
-  http.setUserAgent("InkDeck/" FW_VERSION);
-  if (!http.begin(client, url)) { err = "Bad address"; return -1; }
-  Serial.printf("[net] GET %s\n", url.c_str());
-  const int code = http.GET();
-  if (code != HTTP_CODE_OK) {
-    err = code < 0 ? String("No answer (") + HTTPClient::errorToString(code) + ")" : String("Server said ") + code;
+  String at = url;
+  for (int hop = 0; hop < 6; hop++) {
+    WiFiClientSecure client;
+    client.setInsecure();               // public pages and books: no certificate store on the device
+    HTTPClient http;
+    http.setFollowRedirects(HTTPC_DISABLE_FOLLOW_REDIRECTS);
+    http.setTimeout(20000);
+    http.setUserAgent("InkDeck/" FW_VERSION);
+    const char* keep[] = { "Location" };
+    if (!http.begin(client, at)) { err = "Bad address"; return -1; }
+    http.collectHeaders(keep, 1);
+    Serial.printf("[net] GET %s\n", at.c_str());
+    const int code = http.GET();
+    if (code == 301 || code == 302 || code == 303 || code == 307 || code == 308) {
+      const String loc = http.header("Location");
+      http.end();
+      if (!loc.length()) { err = String("Server said ") + code + " without a new address"; return -1; }
+      at = resolve(at, loc);
+      continue;
+    }
+    if (code != HTTP_CODE_OK) {
+      err = code < 0 ? String("No answer (") + HTTPClient::errorToString(code) + ")" : String("Server said ") + code;
+      http.end();
+      return -1;
+    }
+    const int n = http.writeToStream(&sink);
     http.end();
-    return -1;
+    if (sink.overflow) { err = "Answer too big"; return -1; }
+    if (n < 0) { err = String("Download broke off (") + HTTPClient::errorToString(n) + ")"; return -1; }
+    Serial.printf("[net] got %u bytes\n", (unsigned)sink.total);
+    return (long)sink.total;
   }
-  const int n = http.writeToStream(&sink);
-  http.end();
-  if (sink.overflow) { err = "Answer too big"; return -1; }
-  if (n < 0) { err = String("Download broke off (") + HTTPClient::errorToString(n) + ")"; return -1; }
-  Serial.printf("[net] got %u bytes\n", (unsigned)sink.total);
-  return (long)sink.total;
+  err = "Too many redirects";
+  return -1;
 }
 
 bool get(const String& url, String& out, size_t maxBytes, String& err) {

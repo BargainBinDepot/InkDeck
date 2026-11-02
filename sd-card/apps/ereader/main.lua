@@ -336,7 +336,12 @@ local function authorName(a)
   return last and (first .. " " .. last) or a.name
 end
 
--- The plain-text edition (UTF-8 if there is one); Gutenberg's own path otherwise
+-- Gutenberg's file for the plain-text edition (UTF-8). The catalogue's own
+-- link (textUrl) goes through a redirect first; it's kept as a fallback.
+local function cacheUrl(id)
+  return "https://www.gutenberg.org/cache/epub/" .. id .. "/pg" .. id .. ".txt"
+end
+
 local function textUrl(b)
   local best
   for k, v in pairs(b.formats or {}) do
@@ -345,7 +350,7 @@ local function textUrl(b)
       best = best or v
     end
   end
-  return best or ("https://www.gutenberg.org/cache/epub/" .. b.id .. "/pg" .. b.id .. ".txt")
+  return best
 end
 
 local function runJob(msg, fn)
@@ -376,7 +381,7 @@ local function fetchResults(url, heading, more)
       results.list[#results.list + 1] = {
         id = b.id, title = (b.title or "?"):gsub("%s+", " "), author = authorName(a),
         surname = a and a.name and a.name:match("^([^,]+)") or "",
-        downloads = b.download_count or 0, url = textUrl(b), subjects = subjects,
+        downloads = b.download_count or 0, url = cacheUrl(b.id), alt = textUrl(b), subjects = subjects,
       }
     end
     results.next = type(data["next"]) == "string" and data["next"] or nil
@@ -401,6 +406,7 @@ local function downloadBook(b)
     if not ok then storeMsg = err; mode = "info"; return end
     local tmp = CACHE .. "/gutenberg.download"
     local n, err2 = net.download(b.url, tmp)
+    if not n and b.alt then n, err2 = net.download(b.alt, tmp) end
     if not n then storeMsg = "Download failed: " .. err2; mode = "info"; return end
     local name = bookFileName(b)
     local chapters, err3 = text.gutenberg(tmp, BOOKS .. "/" .. name, b.title, b.author)
