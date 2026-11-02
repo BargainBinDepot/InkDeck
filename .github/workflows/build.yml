@@ -25,6 +25,8 @@ jobs:
             - name: GxEPD2
             - name: Adafruit GFX Library
             - name: Adafruit ST7735 and ST7789 Library
+            - name: JPEGDEC
+            - name: PNGdec
           sketch-paths: |
             - InkDeck
           cli-compile-flags: |

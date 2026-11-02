@@ -32,7 +32,7 @@ local settings = { font = 2, invert = false, last = "" }
 local progress = {}             -- book name -> { offset = byte offset, pct = percent }
 
 local mode = "list"             -- list | read | menu | chapters | goto | settings | delete | indexing
-                                -- | store | search | results | info | busy (Get books)
+                                -- | store | search | results | info | format | busy (Get books)
 local books, sel, top = {}, 1, 1
 local book = nil                -- the open book
 local turnsSinceSave = 0
@@ -405,35 +405,85 @@ local function bookFileName(b)
   return t .. ".txt"
 end
 
-local function downloadBook(b)
+-- How a book can be downloaded (the "Download as" screen)
+local FORMATS = {
+  { id = "pics", label = "EPUB with pictures", note = "Chapters and pictures. A bigger download that takes longer." },
+  { id = "epub", label = "EPUB, text only", note = "Real chapter names and clean paragraphs. Recommended." },
+  { id = "text", label = "Plain text", note = "The smallest. Chapters are guessed from the text." },
+}
+local fmtList, fmtSel = {}, 1
+
+local function buildFormats()
+  fmtList = {}
+  for _, f in ipairs(FORMATS) do
+    if (f.id == "pics" and text.pictures) or (f.id == "epub" and text.epub) or f.id == "text" then
+      fmtList[#fmtList + 1] = f
+    end
+  end
+  fmtSel = 1
+  for i, f in ipairs(fmtList) do if f.id == "epub" then fmtSel = i end end
+end
+
+-- The picture settings chosen in the Books tab of the Uploader (the converter's)
+local function pictureStyle()
+  local c = file.read("converter.txt") or ""
+  return { style = c:match("pictures=(%w+)") or "natural",
+           shades = tonumber(c:match("shades=(%d)") or "4"),
+           rotate = c:match("rotate=(%d)") ~= "0" }
+end
+
+local function imagesUrl(id)
+  return "https://www.gutenberg.org/cache/epub/" .. id .. "/pg" .. id .. "-images.epub"
+end
+
+-- Downloads in the chosen format; if that one isn't there (or fails), the next
+-- simpler one: with pictures -> text-only EPUB -> plain text
+local function downloadBook(b, fmt)
   runJob("Downloading " .. b.title, function()
+    sys.progress(b.title)
     local ok, err = net.connect()
-    if not ok then storeMsg = err; mode = "info"; return end
+    if not ok then sys.progress(); storeMsg = err; mode = "info"; return end
     local name = bookFileName(b)
-    local chapters, err3
-    -- 1. The EPUB, converted on the device (firmware v0.42+)
-    if text.epub then
-      local tmp = CACHE .. "/gutenberg.epub"
-      if net.download(epubUrl(b.id), tmp) then
-        chapters, err3 = text.epub(tmp, BOOKS .. "/" .. name, b.title, b.author)
+    local dst = BOOKS .. "/" .. name
+    local chapters, pics, why
+    local used = nil
+    local order = fmt == "pics" and { "pics", "epub", "text" } or fmt == "epub" and { "epub", "text" } or { "text" }
+    for _, f in ipairs(order) do
+      if f == "pics" or f == "epub" then
+        local tmp = CACHE .. "/gutenberg.epub"
+        local n, e = net.download(f == "pics" and imagesUrl(b.id) or epubUrl(b.id), tmp)
+        if n then
+          chapters, pics = text.epub(tmp, dst, b.title, b.author, f == "pics" and pictureStyle() or nil)
+          if not chapters then why = pics end            -- (nil, why)
+        else
+          why = e
+        end
+        file.remove(tmp)
+      else
+        local tmp = CACHE .. "/gutenberg.download"
+        local n, e = net.download(b.url, tmp)
+        if not n and b.alt then n, e = net.download(b.alt, tmp) end
+        if n then
+          chapters, why = text.gutenberg(tmp, dst, b.title, b.author)
+          pics = 0
+        else
+          why = e
+        end
         file.remove(tmp)
       end
+      if chapters then used = f; break end
     end
-    -- 2. Otherwise the plain text
-    if not chapters then
-      local tmp = CACHE .. "/gutenberg.download"
-      local n, err2 = net.download(b.url, tmp)
-      if not n and b.alt then n, err2 = net.download(b.alt, tmp) end
-      if not n then storeMsg = "Download failed: " .. (err3 or err2); mode = "info"; return end
-      chapters, err3 = text.gutenberg(tmp, BOOKS .. "/" .. name, b.title, b.author)
-      file.remove(tmp)
-      if not chapters then storeMsg = err3; mode = "info"; return end
-    end
+    sys.progress()
+    if not chapters then storeMsg = "Download failed: " .. (why or "?"); mode = "info"; return end
     net.disconnect()
     sys.stayawake(false)
     scanBooks()
     for i, bk in ipairs(books) do if bk.name == name then sel = i end end
-    message = "Added: " .. b.title .. (chapters > 0 and " (" .. chapters .. " chapters)" or "")
+    local bits = {}
+    if chapters > 0 then bits[#bits + 1] = chapters .. " chapters" end
+    if (pics or 0) > 0 then bits[#bits + 1] = pics .. " pictures" end
+    if used ~= fmt then bits[#bits + 1] = (used == "text" and "plain text" or "no pictures") .. ": " .. fmt .. " not available" end
+    message = "Added: " .. b.title .. (#bits > 0 and " (" .. table.concat(bits, ", ") .. ")" or "")
     mode = "list"
   end)
 end
@@ -572,8 +622,18 @@ function key(k, ch)
 
   if mode == "info" then
     storeMsg = nil
-    if k == keys.ENTER then downloadBook(results.list[resSel])
+    if k == keys.ENTER or k == keys.RIGHT then buildFormats(); mode = "format"
     elseif k == keys.LEFT then mode = "results"
+    else return false end
+    return
+  end
+
+  if mode == "format" then
+    local n = #fmtList
+    if k == keys.UP then fmtSel = fmtSel > 1 and fmtSel - 1 or n
+    elseif k == keys.DOWN then fmtSel = fmtSel < n and fmtSel + 1 or 1
+    elseif k == keys.ENTER or k == keys.RIGHT then downloadBook(results.list[resSel], fmtList[fmtSel].id)
+    elseif k == keys.LEFT then mode = "info"
     else return false end
     return
   end
@@ -691,6 +751,7 @@ function back()
   if mode == "search" then mode = "store"; return true end
   if mode == "results" then mode = "store"; storeMsg = nil; return true end
   if mode == "info" then mode = "results"; storeMsg = nil; return true end
+  if mode == "format" then mode = "info"; return true end
   if mode == "read" then closeBook()
   elseif mode == "menu" or mode == "chapters" or mode == "goto" then mode = "read"; updateTitle()
   elseif mode == "settings" or mode == "delete" then mode = "list"
@@ -875,6 +936,23 @@ local function drawInfo()
   line(b.downloads .. " recent downloads")
   for _, sub in ipairs(b.subjects) do line(fit("- " .. sub, screen.cols)) end
   if storeMsg then screen.text(screen.margin, screen.H - 2 * screen.lh + screen.scale, fit(storeMsg, screen.cols)) end
+  footer("Enter=download...  Esc=back")
+end
+
+local function drawFormat()
+  local b = results.list[resSel]
+  local y0 = header("Download as...")
+  screen.text(screen.margin, y0 + screen.scale, fit(b.title, screen.cols))
+  y0 = y0 + screen.lh + 2 * screen.scale
+  local items = {}
+  for _, f in ipairs(fmtList) do items[#items + 1] = f.label end
+  drawList(items, fmtSel, 1, y0, #items)
+  local y = y0 + #items * screen.lh + 3 * screen.scale
+  local note = fmtList[fmtSel].note
+  if not text.pictures then note = note .. " (Pictures need firmware built with EPUB_PICTURES.)" end
+  for i, l in ipairs(screen.wrap(note, screen.cols)) do
+    if i <= 3 then screen.text(screen.margin, y, l); y = y + screen.lh end
+  end
   footer("Enter=download  Esc=back")
 end
 
@@ -908,6 +986,7 @@ function draw()
   elseif mode == "search"   then drawSearch()
   elseif mode == "results"  then drawResults()
   elseif mode == "info"     then drawInfo()
+  elseif mode == "format"   then drawFormat()
   elseif mode == "busy"     then drawBusy()
   end
   if settings.invert then

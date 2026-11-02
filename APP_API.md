@@ -207,7 +207,9 @@ Internet over the WiFi saved in the Uploader (firmware v0.41+). Calls block unti
 |---|---|
 | `json.decode(str)` | Objects and arrays become tables (arrays from 1), `null` becomes `nil`. Returns the value, or `nil, why` |
 
-`text.epub(src, dst [, title, author])` (v0.42+) turns an EPUB into an eReader book on the device: reading order from the OPF, a chapter for each h1-h3 heading, Gutenberg's licence pages left out, no pictures. Returns the number of chapters, or `nil, why`.
+`text.epub(src, dst [, title, author [, pictures]])` (v0.42+) turns an EPUB into an eReader book on the device: reading order from the OPF, a chapter for each h1-h3 heading, Gutenberg's licence pages left out. `pictures` (v0.43+): `{ style = "natural"|"classic"|"linear", shades = 4|2, rotate = true }` makes JPEG/PNG pictures into `<book>.img/NNN.bmp` with marker lines, as the browser converter does; omit it for text only. Returns chapters, pictures, or `nil, why`. `text.pictures` is `true` when the firmware was built with the picture decoders.
+
+`sys.progress(title)` (v0.43+) shows a progress bar under the status bar while `net.download`, `text.epub` and `text.gutenberg` work (refreshed every couple of seconds); `sys.progress()` turns it off. It's also turned off when the app closes.
 
 `text.gutenberg(src, dst [, title, author])` (in the `text` table) turns a Project Gutenberg plain-text download into an eReader book: licence text removed, paragraphs rejoined, chapter headings marked, accents as plain ASCII. Returns the number of chapters found, or `nil, why`.
 

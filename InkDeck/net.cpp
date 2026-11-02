@@ -3,6 +3,7 @@
 #include "storage.h"
 #include "keyboard.h"
 #include "webui.h"
+#include "progress.h"
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
@@ -62,13 +63,18 @@ public:
       return 0;                                     // card full or gone
     }
     total += n;
-    if (total - lastKb >= 4096) { lastKb = total; kb.service(); }
+    if (total - lastKb >= 4096) {
+      lastKb = total;
+      kb.service();
+      if (_f) Progress::update("Downloading", total, expect, Progress::Unit::Bytes);
+    }
     return n;
   }
   int available() override { return 0; }
   int read() override { return -1; }
   int peek() override { return -1; }
   size_t total = 0;
+  uint32_t expect = 0;                // Content-Length, 0 if not given
   bool overflow = false;
 private:
   String* _s = nullptr;
@@ -118,6 +124,7 @@ static long fetch(const String& url, Sink& sink, String& err) {
       http.end();
       return -1;
     }
+    sink.expect = http.getSize() > 0 ? http.getSize() : 0;
     const int n = http.writeToStream(&sink);
     http.end();
     if (sink.overflow) { err = "Answer too big"; return -1; }
@@ -318,7 +325,9 @@ bool convert(const String& src, const String& dst, const String& title, const St
     para = "";
     wrote = true;
   };
+  const uint32_t span = (end == 0xFFFFFFFF ? r->size() : end) - start;
   while (lines.next(line, at) && at < end) {
+    Progress::update("Preparing the text", at - start, span, Progress::Unit::Percent);
     if (!line.length()) { flush(); blanks++; continue; }
     int indent = 0;
     while (indent < (int)line.length() && line[indent] == ' ') indent++;

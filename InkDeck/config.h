@@ -12,7 +12,7 @@
 //    43, 44        UART0 TX/RX
 // =====================================================================
 
-#define FW_VERSION "v0.42"
+#define FW_VERSION "v0.43"
 #define BRAND_NAME "InkDeck"
 
 // ---------------- Which display is plugged in ----------------
@@ -126,6 +126,10 @@
 #define SD_SPI_HZ      10000000   // conservative for jumper wires
 
 // ---------------- Lua apps ----------------
+// Pictures in books converted on the device (eReader > Get books > EPUB with
+// pictures). Needs the JPEGDEC and PNGdec libraries (Library Manager); set 0
+// to build without them.
+#define EPUB_PICTURES      1
 #define LUA_MEM_LIMIT_KB   1024     // RAM cap per app (uses PSRAM when the board has it)
 #define LUA_TIMEOUT_MS     3000     // one callback running longer than this is stopped
 #define LUA_SOURCE_MAX     65536    // biggest main.lua we'll load

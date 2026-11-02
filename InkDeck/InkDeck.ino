@@ -1,5 +1,5 @@
 // =====================================================================
-//  InkDeck firmware v0.42
+//  InkDeck firmware v0.43
 //  ESP32-S3 + CardKB + e-paper (or the ST7789 TFT preview)
 //
 //  v0.1   display HAL, CardKB input, paged launcher, app framework
@@ -99,6 +99,10 @@
 //  v0.42  EPUBs converted on the device (text.epub: own inflate, OPF reading
 //         order, real chapter names); Get books downloads Gutenberg's EPUB
 //         first and falls back to the plain text. No pictures yet.
+//  v0.43  Pictures in EPUBs converted on the device (JPEGDEC + PNGdec, same
+//         rules and styles as the browser converter; EPUB_PICTURES in
+//         config.h). Progress bar for long jobs (sys.progress). eReader 2.1:
+//         Download as plain text / EPUB / EPUB with pictures.
 //
 //  Arduino IDE (ESP32S3 Dev Module): Flash Size 16MB, Partition Scheme
 //  "16M Flash (3MB APP/9.9MB FATFS)", PSRAM "OPI PSRAM", USB CDC On Boot

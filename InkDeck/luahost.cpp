@@ -10,6 +10,7 @@
 #include "icons.h"
 #include "net.h"
 #include "epub.h"
+#include "progress.h"
 #include <map>
 #include "clock.h"
 #include "battery.h"
@@ -438,7 +439,16 @@ static int l_beep(lua_State* Ls) {
 // sys.sound() -> true if beeps will be heard (there's a buzzer and sound is on)
 static int l_sound(lua_State* Ls) { lua_pushboolean(Ls, Sound::available()); return 1; }
 
+// sys.progress(title): a progress bar while the firmware works on a long job
+// (net.download, text.epub, text.gutenberg); sys.progress() turns it off
+static int l_progress(lua_State* Ls) {
+  if (lua_isstring(Ls, 1)) Progress::begin(lua_tostring(Ls, 1));
+  else Progress::end();
+  return 0;
+}
+
 static const luaL_Reg sysLib[] = {
+  { "progress", l_progress },
   { "exit", l_exit }, { "millis", l_millis }, { "title", l_title }, { "mem", l_mem },
   { "clipboard", l_clipboard }, { "time", l_time }, { "date", l_date }, { "random", l_random },
   { "stayawake", l_stayawake }, { "battery", l_battery }, { "beep", l_beep }, { "sound", l_sound },
@@ -630,17 +640,32 @@ static int l_gutenberg(lua_State* Ls) {
   return 1;
 }
 
-// text.epub(src, dst, title, author) -> chapters found, or nil, why
-// An EPUB as an eReader book, on the device (no pictures yet; see epub.h)
+// text.epub(src, dst, title, author [, pictures]) -> chapters, pictures; or nil, why
+// An EPUB as an eReader book, on the device (see epub.h). pictures: nil/false
+// for none, or { style = "natural"|"classic"|"linear", shades = 4|2, rotate = bool }
 static int l_epub(lua_State* Ls) {
   String src, dst, err;
   if (!appPath(luaL_checkstring(Ls, 1), src) || !appPath(luaL_checkstring(Ls, 2), dst)) return fail(Ls, "bad file name");
-  uint32_t chapters = 0;
-  const bool ok = Epub::convert(src, dst, luaL_optstring(Ls, 3, ""), luaL_optstring(Ls, 4, ""), err, &chapters);
+  Picture::Style style;
+  const bool pictures = lua_istable(Ls, 5);
+  if (pictures) {
+    lua_getfield(Ls, 5, "style");
+    const char* s = lua_tostring(Ls, -1);
+    style.kind = s && !strcmp(s, "classic") ? 1 : s && !strcmp(s, "linear") ? 2 : 0;
+    lua_getfield(Ls, 5, "shades");
+    style.shades = lua_tointeger(Ls, -1) == 2 ? 2 : 4;
+    lua_getfield(Ls, 5, "rotate");
+    style.rotate = lua_isnil(Ls, -1) || lua_toboolean(Ls, -1);
+    lua_pop(Ls, 3);
+  }
+  uint32_t chapters = 0, pics = 0;
+  const bool ok = Epub::convert(src, dst, luaL_optstring(Ls, 3, ""), luaL_optstring(Ls, 4, ""), err, &chapters,
+                                pictures ? &style : nullptr, &pics);
   callStart = millis();
   if (!ok) return fail(Ls, err.c_str());
   lua_pushinteger(Ls, chapters);
-  return 1;
+  lua_pushinteger(Ls, pics);
+  return 2;
 }
 
 static const luaL_Reg textLib[] = {
@@ -874,6 +899,8 @@ static void openLibs() {
   lua_setglobal(L, "file");
 
   luaL_newlib(L, textLib);
+  lua_pushboolean(L, Picture::supported());
+  lua_setfield(L, -2, "pictures");     // text.epub can make pictures (JPEG/PNG decoders built in)
   lua_setglobal(L, "text");
 
   luaL_newlib(L, netLib);
@@ -939,6 +966,7 @@ void close() {
   Sound::stop();                               // and so does its tune
   screen.setFastHint(false);                   // and its fast refresh request
   Net::disconnect();                           // and its WiFi
+  Progress::end();                             // and its progress bar
   if (L) {
     lua_close(L);
     L = nullptr;

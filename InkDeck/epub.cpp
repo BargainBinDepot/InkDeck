@@ -2,6 +2,10 @@
 #include "net.h"
 #include "storage.h"
 #include "keyboard.h"
+#include "progress.h"
+#include "ui.h"
+#include <functional>
+#include <map>
 #include <SD.h>
 #include <vector>
 #include <algorithm>
@@ -338,6 +342,7 @@ class Html2Text {
 public:
   String out;
   String titleKey;
+  std::function<String(const String&)> onImage;     // picture src -> its marker line ("" = none)
 
   void page(const char* p) {
     while (*p) {
@@ -422,6 +427,17 @@ private:
     char q = 0;
     while (*e && (q || *e != '>')) { if (q) { if (*e == q) q = 0; } else if (*e == '"' || *e == '\'') q = *e; e++; }
     if (*e) e++;
+    if (!closing && onImage && (!strcmp(name, "img") || !strcmp(name, "image"))) {   // <img src>, SVG <image href>
+      const String t = String(" ") + String(n, e - n);
+      String src = attr(t, "src");
+      if (!src.length()) src = attr(t, "xlink:href");
+      if (!src.length()) src = attr(t, "href");
+      if (src.length() && !src.startsWith("data:") && !src.startsWith("http")) {
+        const String m = onImage(src);
+        if (m.length()) { block(); flushMarker(); out += m; out += "\n\n"; }
+      }
+      return e;
+    }
     if (!closing && (!strcmp(name, "script") || !strcmp(name, "style") || !strcmp(name, "head"))) {
       char endTag[16];
       snprintf(endTag, sizeof(endTag), "</%s", name);
@@ -473,7 +489,7 @@ private:
 //  The whole book
 // =====================================================================
 bool convert(const String& src, const String& dst, const String& title, const String& author,
-             String& err, uint32_t* chapterCount) {
+             String& err, uint32_t* chapterCount, const Picture::Style* pictures, uint32_t* pictureCount) {
   Zip zip;
   if (!zip.open(src, err)) return false;
 
@@ -513,15 +529,58 @@ bool convert(const String& src, const String& dst, const String& title, const St
   }
   if (spine.empty()) { err = "The EPUB has no pages"; return false; }
 
-  // Every page, in reading order
+  // Pictures go in <book>.img/, fitted to the reading area (as the eReader lays it out)
   Html2Text h;
+  String pageDir;
+  uint32_t pics = 0;
+  std::map<String, String> made;                       // picture path -> its marker (a picture used twice)
+  const String base = dst.endsWith(".txt") ? dst.substring(0, dst.length() - 4) : dst;
+  const String imgDir = base + ".img";
+  Storage::removeTree(imgDir);                          // pictures from an earlier copy of this book
+  if (pictures && Picture::supported()) {
+    Storage::mkdirs(imgDir);
+    const int maxW = SCREEN_W - 2 * UI::MARGIN - 3 * UI::T;
+    const int maxH = SCREEN_H - (UI::BODY_Y + 2 * UI::T) - UI::T;
+    h.onImage = [&](const String& srcRef) -> String {
+      const String path = resolve(pageDir, srcRef);
+      auto it = made.find(path);
+      if (it != made.end()) return it->second;
+      String marker, why;
+      const Entry* ie = zip.find(path);
+      if (ie) {
+        String rerr;
+        uint8_t* data = zip.read(*ie, rerr);
+        if (data) {
+          char name[12];
+          snprintf(name, sizeof(name), "%03u.bmp", (unsigned)(pics + 1));
+          int w = 0, ht = 0;
+          if (Picture::convert(data, ie->usize, maxW, maxH, *pictures, imgDir + "/" + name, w, ht, why)) {
+            pics++;
+            marker = String("\x02img ") + name + " " + w + " " + ht + "\x02";
+            Progress::note(String(pics) + (pics == 1 ? " picture" : " pictures"));
+          } else {
+            Serial.printf("[epub] picture %s skipped: %s\n", path.c_str(), why.c_str());
+          }
+          free(data);
+        }
+      }
+      made[path] = marker;
+      kb.service();
+      return marker;
+    };
+  }
+
+  // Every page, in reading order
   h.titleKey = key(Gutenberg::asciiOf(title));
   h.out.reserve(512 * 1024);
-  for (const auto& path : spine) {
+  for (size_t i = 0; i < spine.size(); i++) {
+    const String& path = spine[i];
+    Progress::update("Converting", i + 1, spine.size());
     const Entry* pe = zip.find(path);
     if (!pe) continue;
     uint8_t* page = zip.read(*pe, err);
     if (!page) return false;
+    pageDir = path.lastIndexOf('/') >= 0 ? path.substring(0, path.lastIndexOf('/') + 1) : "";
     h.page((const char*)page);
     free(page);
     kb.service();
@@ -560,8 +619,9 @@ bool convert(const String& src, const String& dst, const String& title, const St
   out.close();
   if (!ok) { Storage::remove(dst); err = "The SD card is full"; return false; }
   if (chapterCount) *chapterCount = chapters;
-  Serial.printf("[epub] %s: %u pages, %u chapters, %u bytes\n", dst.c_str(), (unsigned)spine.size(),
-                (unsigned)chapters, (unsigned)(to - from));
+  if (pictureCount) *pictureCount = pics;
+  Serial.printf("[epub] %s: %u pages, %u chapters, %u pictures, %u bytes\n", dst.c_str(), (unsigned)spine.size(),
+                (unsigned)chapters, (unsigned)pics, (unsigned)(to - from));
   return true;
 }
 
