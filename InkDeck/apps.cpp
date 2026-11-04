@@ -816,7 +816,7 @@ void begin() {
   current = -1;
   inFolder = -1;
   buildAppList();
-  requestRedraw(Refresh::Clean);             // first picture on the panel
+  requestRedraw(Refresh::Clean);             // first picture after the splash: a deep clean
 }
 
 void requestRedraw(Refresh mode) {

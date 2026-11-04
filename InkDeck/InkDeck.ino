@@ -1,5 +1,5 @@
 // =====================================================================
-//  InkDeck firmware v0.43
+//  InkDeck firmware v0.44
 //  ESP32-S3 + CardKB + e-paper (or the ST7789 TFT preview)
 //
 //  v0.1   display HAL, CardKB input, paged launcher, app framework
@@ -103,6 +103,9 @@
 //         rules and styles as the browser converter; EPUB_PICTURES in
 //         config.h). Progress bar for long jobs (sys.progress). eReader 2.1:
 //         Download as plain text / EPUB / EPUB with pictures.
+//  v0.44  Splash screen at power-on, so the home screen gets a real deep
+//         clean (GxEPD2's first refresh is always its quick one); keys from
+//         start-up are dropped.
 //
 //  Arduino IDE (ESP32S3 Dev Module): Flash Size 16MB, Partition Scheme
 //  "16M Flash (3MB APP/9.9MB FATFS)", PSRAM "OPI PSRAM", USB CDC On Boot
@@ -110,6 +113,7 @@
 // =====================================================================
 #include "config.h"
 #include "screen.h"
+#include "ui.h"
 #include "keyboard.h"
 #include "apps.h"
 #include "storage.h"
@@ -132,6 +136,19 @@ static const char FW_TAG[] __attribute__((used)) = "INKDECK-FW:" FW_VERSION;
 // (if the core's bootloader supports it, a crash before then rolls back)
 bool verifyRollbackLater() { return true; }
 
+// The first picture after power-on. GxEPD2's first refresh is always its quick
+// one (it ignores the deep clean), so it goes to this splash while the rest
+// starts up; the home screen then gets a real deep clean.
+static void showSplash() {
+  using namespace UI;
+  screen.clear();
+  const int mid = SCREEN_H / 2;
+  screen.textCentered(SCREEN_W / 2, mid - 14 * T, BRAND_NAME, 3 * T);
+  screen.textCentered(SCREEN_W / 2, mid + 14 * T, FW_VERSION, T);
+  screen.textCentered(SCREEN_W / 2, mid + 28 * T, "Starting...", T);
+  screen.refresh(Refresh::Full);
+}
+
 void setup() {
   Serial.begin(115200);
   delay(300);
@@ -141,6 +158,7 @@ void setup() {
 
   Battery::begin();              // first: an empty battery goes straight back to sleep
   screen.begin();
+  showSplash();
   kb.begin();
   Storage::begin();
   screen.loadSettings();
@@ -148,7 +166,8 @@ void setup() {
   Sound::begin();
   Clock::begin();
   Power::begin();
-  AppMgr::begin();
+  while (kb.poll()) {}            // keys from start-up (or keyboard glitches while it powered up) don't count
+  AppMgr::begin();               // home screen, with a deep clean
 
   Serial.println("=== ready ===");
 }
