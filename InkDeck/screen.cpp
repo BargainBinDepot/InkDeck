@@ -422,8 +422,11 @@ void Screen::backendPush(bool full, bool deep) {
       _writeCommand(0x12); _waitWhileBusy("deepRefresh", 3 * full_refresh_time);
       _writeCommand(0x02); _waitWhileBusy("powerOff", power_off_time);
       _power_is_on = false;
-      _InitDisplay();          // soft reset, as the driver's own full refresh ends: the next partial
-                               // refresh then starts from the same state as every later one
+      // Soft reset, as the driver's own full refresh ends (its _InitDisplay(), which is
+      // private): the next partial refresh then starts from the same state as every later one
+      _writeCommand(0x00); _writeData(0x1e); _writeData(0x0d);
+      delay(1);
+      _writeCommand(0x00); _writeData(0x1f); _writeData(0x0d);
     }
   };
   static GxEPD2_BW<GxEPD2_370_Deep, GxEPD2_370_Deep::HEIGHT>
