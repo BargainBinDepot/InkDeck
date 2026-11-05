@@ -55,16 +55,14 @@ void Screen::refresh(Refresh mode) {
     for (size_t i = 0; i < bytes; i++) changed += __builtin_popcount(now[i] ^ _lastShown[i]);
   }
   uint32_t t = millis();
-  _drovAll = false;
   backendPush(full, deep);
   if (_lastShown) memcpy(_lastShown, _c.getBuffer(), bytes);
   _lastMs = millis() - t;
   if (full) { _partials = 0; _forceFull = false; _fulls++; }
   else      { _partials++; }
-  _driveAll = full;                             // after a full refresh, the next partial drives every pixel
   Serial.printf("[screen] %s refresh took %lu ms, %lu pixels changed%s (%lu partial since full, %lu unchanged skipped)\n",
                 deep ? "deep" : full ? "full" : _fastNow ? "fast" : "partial", (unsigned long)_lastMs,
-                (unsigned long)changed, _drovAll ? ", every pixel driven" : "",
+                (unsigned long)changed, needsGrey() ? ", with greys" : "",
                 (unsigned long)_partials, (unsigned long)_skipped);
 }
 
@@ -452,7 +450,6 @@ void Screen::sleep() {
   fastEnd();                        // a fast burst can't be left powered
 #endif
   epd.hibernate(); _sleptSinceGrey = true;
-  _driveAll = true;                 // after waking, the first partial drives every pixel
 }   // GxEPD2 wakes the panel again on the next display()
 void Screen::wake()  {}
 const char* Screen::backendName() const { return EPD_NAME; }
@@ -843,19 +840,11 @@ void Screen::backendPush(bool full, bool deep) {
   // A partial refresh only drives pixels that differ from the controller's
   // "previous" picture. That copy is lost when the panel sleeps (and can be
   // off after other mishaps), leaving old pixels on screen, so send it again
-  // from what we know is shown. Straight after boot, a full refresh or sleep,
-  // when what's really on the glass is least certain, "previous" is the
-  // opposite of the new picture instead: every pixel is driven to its colour
-  // (unchanged ones are only pushed further into it, no flash), clearing
-  // anything left over.
+  // from what we know is shown.
+  // (v0.45 tried "previous = the opposite of the new picture" to drive every
+  // pixel: on this panel's partial waveform that inverts the screen. Don't.)
   if (!full && _lastShown && (_fulls || _partials) && planesReady()) {
-    if (_driveAll) {
-      packBW(_c.getBuffer(), planeNew);
-      for (size_t i = 0; i < PLANE; i++) planeNew[i] = ~planeNew[i];
-      _drovAll = true;
-    } else {
-      packBW(_lastShown, planeNew);
-    }
+    packBW(_lastShown, planeNew);
     epd.epd2.writeImageToPrevious(planeNew, 0, 0, NW, NH);
   }
 #endif

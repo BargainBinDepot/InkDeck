@@ -1,5 +1,5 @@
 // =====================================================================
-//  InkDeck firmware v0.45
+//  InkDeck firmware v0.46
 //  ESP32-S3 + CardKB + e-paper (or the ST7789 TFT preview)
 //
 //  v0.1   display HAL, CardKB input, paged launcher, app framework
@@ -110,6 +110,8 @@
 //         drives every pixel (no trusting the panel's memory of the last
 //         picture), so leftovers like a home screen icon are cleared. The
 //         log shows how many pixels each refresh changed.
+//  v0.46  v0.45's "drive every pixel" undone: on this panel's quick refresh
+//         it inverts the screen. The pixel counts in the log stay.
 //
 //  Arduino IDE (ESP32S3 Dev Module): Flash Size 16MB, Partition Scheme
 //  "16M Flash (3MB APP/9.9MB FATFS)", PSRAM "OPI PSRAM", USB CDC On Boot
