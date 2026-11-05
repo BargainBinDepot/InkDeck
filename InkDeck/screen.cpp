@@ -422,6 +422,8 @@ void Screen::backendPush(bool full, bool deep) {
       _writeCommand(0x12); _waitWhileBusy("deepRefresh", 3 * full_refresh_time);
       _writeCommand(0x02); _waitWhileBusy("powerOff", power_off_time);
       _power_is_on = false;
+      _InitDisplay();          // soft reset, as the driver's own full refresh ends: the next partial
+                               // refresh then starts from the same state as every later one
     }
   };
   static GxEPD2_BW<GxEPD2_370_Deep, GxEPD2_370_Deep::HEIGHT>
@@ -849,6 +851,17 @@ void Screen::backendPush(bool full, bool deep) {
   }
 #endif
   epd.display(!full);
+#if DISPLAY_PANEL == PANEL_WEACT_370_BW
+  // The first partial refresh after a full one doesn't reach the glass (seen
+  // in the logs: the first key press after boot drew nothing, and the next
+  // refresh then left old pixels behind). So after a full refresh, one
+  // partial refresh of the same picture takes that place: nothing changes, so
+  // nothing shows, and the next real one works.
+  if (full) {
+    epd.display(true);
+    Serial.println("[screen] primed the partial refresh after a full one");
+  }
+#endif
 }
 
 #endif
