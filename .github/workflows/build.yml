@@ -10,7 +10,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04   # arduino/compile-sketches needs a Python that 26.04 runners lack
     steps:
       - uses: actions/checkout@v4
 
