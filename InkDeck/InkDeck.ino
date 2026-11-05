@@ -1,5 +1,5 @@
 // =====================================================================
-//  InkDeck firmware v0.44
+//  InkDeck firmware v0.45
 //  ESP32-S3 + CardKB + e-paper (or the ST7789 TFT preview)
 //
 //  v0.1   display HAL, CardKB input, paged launcher, app framework
@@ -106,6 +106,10 @@
 //  v0.44  Splash screen at power-on, so the home screen gets a real deep
 //         clean (GxEPD2's first refresh is always its quick one); keys from
 //         start-up are dropped.
+//  v0.45  The first partial refresh after boot, a full refresh or sleep
+//         drives every pixel (no trusting the panel's memory of the last
+//         picture), so leftovers like a home screen icon are cleared. The
+//         log shows how many pixels each refresh changed.
 //
 //  Arduino IDE (ESP32S3 Dev Module): Flash Size 16MB, Partition Scheme
 //  "16M Flash (3MB APP/9.9MB FATFS)", PSRAM "OPI PSRAM", USB CDC On Boot

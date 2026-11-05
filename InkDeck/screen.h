@@ -172,6 +172,8 @@ private:
   bool       _fastLutDirty = false;    // strength changed: reload the waveforms
   uint32_t   _lastKeyMs = 0;
   uint32_t   _skipped = 0;             // refreshes skipped as nothing changed
+  bool       _driveAll = true;         // next partial drives every pixel (after boot, a full refresh, sleep)
+  bool       _drovAll = false;         // (for the log)
   uint8_t*   _lastShown = nullptr;     // black layer as last sent to the panel (fast refresh needs it)
   GFXcanvas1 _r{SCREEN_W, SCREEN_H};
   uint32_t _partials = 0;
